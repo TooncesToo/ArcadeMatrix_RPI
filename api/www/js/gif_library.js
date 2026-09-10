@@ -1,171 +1,162 @@
-// GIF Library card: drop files or folders (or browse), auto-upload, auto-reindex (parity with the ESP32 firmware)
+// GIF Library file manager (v2): folders left, files right; drop/browse queues, Upload sends; mkdir/rename/delete/preview/download (parity with the ESP32 firmware)
 export function initGifLibrary() {
   const $ = (id) => document.getElementById(id);
-  const folderSel = $('gif-lib-folder'), newFolder = $('gif-lib-newfolder'), filesIn = $('gif-lib-files'), dirIn = $('gif-lib-dir');
-  const dropZone = $('gif-lib-drop-zone'), pickDir = $('gif-lib-pick-dir'), uploadBtn = $('gif-lib-upload-btn'), progress = $('gif-lib-progress'), table = $('gif-lib-table');
-  if (!folderSel || !dropZone) return;
+  const folderList = $('gif-fm-folder-list'), newFolder = $('gif-fm-newfolder'), mkdirBtn = $('gif-fm-mkdir');
+  const title = $('gif-fm-title'), countEl = $('gif-fm-count'), folderActions = $('gif-fm-folder-actions'), renameFolderBtn = $('gif-fm-rename-folder'), deleteFolderBtn = $('gif-fm-delete-folder');
+  const dropZone = $('gif-fm-drop'), dropTarget = $('gif-fm-drop-target'), pickDir = $('gif-fm-pick-dir'), filesIn = $('gif-fm-files-input'), dirIn = $('gif-fm-dir-input');
+  const list = $('gif-fm-list'), moreBtn = $('gif-fm-more'), progress = $('gif-lib-progress'), uploadBtn = $('gif-lib-upload-btn');
+  if (!folderList || !dropZone || !uploadBtn) return;
   const toast = (m, t) => (window.showToast ? window.showToast(m, t) : console.log(t, m));
   const headers = () => { const h = {}; const tok = localStorage.getItem('api_token'); if (tok) h['X-API-Token'] = tok; return h; };
-  const BATCH = 6;             // files per request: keeps each multipart body small for the ESP32
-  const ALLOWED = /\.(gif|png|raw)$/i;
-  let busy = false;
-  let pending = null;   // Map<folder, File[]> queued by drop/browse, sent when Upload is clicked
+  const api = async (url, opts) => { const r = await fetch(url, Object.assign({ headers: headers() }, opts || {})); let b = {}; try { b = await r.json(); } catch (_) {} if (!r.ok) throw new Error(b.message || ('HTTP ' + r.status)); return b; };
+  const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const enc = encodeURIComponent;
+  const fmtBytes = (b) => b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : b >= 1024 ? Math.round(b / 1024) + ' KB' : b + ' B';
+  const BATCH = 6, PAGE = 100, ALLOWED = /\.(gif|png|raw)$/i;
+  let folders = {}, selected = null, files = [], shown = 0, pending = null, busy = false;
 
-  async function loadLibrary() {
+  // ---------------- folders (left pane) ----------------
+  async function loadLibrary(keep) {
     try {
-      const res = await fetch('/api/gifs/library', { headers: headers() });
-      const data = await res.json();
-      const folders = data.folders || {};
+      const data = await api('/api/gifs/library'); folders = data.folders || {};
       const names = Object.keys(folders).sort((a, b) => a.localeCompare(b));
-      const current = folderSel.value;
-      folderSel.innerHTML = '';
-      names.forEach(n => { const o = document.createElement('option'); o.value = n; o.textContent = `${n} (${folders[n].count})`; folderSel.appendChild(o); });
-      if (names.includes(current)) folderSel.value = current;
-      table.innerHTML = names.length ? names.map(n => `<a href="#" class="gif-lib-chip" data-folder="${n}" style="color: inherit; text-decoration: none;" title="Show files"><strong>${n}</strong> · ${folders[n].count}</a>`).join('') : '<span>No playlist folders yet.</span>';
-      table.querySelectorAll('.gif-lib-chip').forEach(a => a.onclick = (e) => { e.preventDefault(); showFolder(a.dataset.folder); });
-    } catch (e) { table.textContent = 'Library unavailable: ' + (e.message || e); }
+      folderList.innerHTML = names.length ? '' : '<span class="text-muted">No playlist folders yet.</span>';
+      names.forEach(n => {
+        const b = document.createElement('button'); b.className = 'btn'; b.dataset.folder = n;
+        b.style.cssText = 'text-align: left; padding: 0.3rem 0.6rem; display: flex; justify-content: space-between; gap: 0.5rem;' + (n === selected ? ' border: 1px solid var(--accent, #6cf);' : ' opacity: 0.85;');
+        b.innerHTML = `<span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${esc(n)}</span><span class="text-muted">${folders[n].count}</span>`;
+        b.onclick = () => selectFolder(n); folderList.appendChild(b);
+      });
+      if (selected && !names.includes(selected)) { selected = null; renderFiles([]); }
+      else if (selected && keep !== false) selectFolder(selected, true);
+    } catch (e) { folderList.textContent = 'Library unavailable: ' + (e.message || e); }
   }
 
-  function targetFolder() {
-    const nf = (newFolder.value || '').trim();
-    return nf ? nf : folderSel.value;
+  async function selectFolder(name, silent) {
+    selected = name; dropTarget.textContent = name ? `“${name}”` : 'the selected folder';
+    folderList.querySelectorAll('button').forEach(b => { b.style.border = b.dataset.folder === name ? '1px solid var(--accent, #6cf)' : ''; b.style.opacity = b.dataset.folder === name ? '1' : '0.85'; });
+    if (!name) { title.textContent = 'Select a folder'; countEl.textContent = ''; folderActions.style.display = 'none'; renderFiles([]); return; }
+    try {
+      const data = await api('/api/gifs/files?folder=' + enc(name));
+      files = data.files || []; title.textContent = name; countEl.textContent = `${files.length} file(s)`; folderActions.style.display = '';
+      renderFiles(files, true);
+    } catch (e) { if (!silent) toast('Could not list folder: ' + (e.message || e), 'error'); }
   }
 
-  async function uploadBatch(folder, files) {
-    const fd = new FormData();
-    files.forEach(f => fd.append('file', f, f.name));
-    const res = await fetch('/api/gifs/upload?folder=' + encodeURIComponent(folder), { method: 'POST', headers: headers(), body: fd });
-    let body = {};
-    try { body = await res.json(); } catch (_) {}
-    if (!res.ok && !(body.saved && body.saved.length)) throw new Error(body.message || ('HTTP ' + res.status));
+  // ---------------- files (right pane) ----------------
+  function renderFiles(fl, reset) {
+    if (reset) { list.innerHTML = ''; shown = 0; }
+    if (!fl.length) { if (selected) list.innerHTML = '<div class="text-muted" style="padding: 0.4rem;">Empty folder.</div>'; else list.innerHTML = ''; moreBtn.style.display = 'none'; return; }
+    const slice = fl.slice(shown, shown + PAGE); shown += slice.length;
+    slice.forEach(f => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display: flex; align-items: center; gap: 0.6rem; padding: 0.25rem 0.4rem; border-bottom: 1px solid rgba(255,255,255,0.06);';
+      const url = `/api/gifs/file?folder=${enc(selected)}&name=${enc(f.name)}`;
+      row.innerHTML = `<a href="#" class="fm-name" style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; text-decoration: none;" title="Click to preview">${esc(f.name)}</a>
+        <span class="text-muted" style="white-space: nowrap;">${fmtBytes(f.bytes)}</span>
+        <a href="${url}&download=1" class="text-muted" title="Download" style="text-decoration: none;">⤓</a>
+        <a href="#" class="fm-rename text-muted" title="Rename" style="text-decoration: none;">✎</a>
+        <a href="#" class="fm-del" title="Delete" style="color: #f87171; text-decoration: none;">✕</a>`;
+      const nameEl = row.querySelector('.fm-name');
+      nameEl.onclick = (e) => {
+        e.preventDefault(); let pv = row.nextElementSibling;
+        if (pv && pv.classList.contains('fm-preview')) { pv.remove(); return; }
+        pv = document.createElement('div'); pv.className = 'fm-preview'; pv.style.cssText = 'padding: 0.4rem; background: rgba(0,0,0,0.3);';
+        pv.innerHTML = `<img src="${url}" alt="${esc(f.name)}" style="image-rendering: pixelated; max-width: 100%; height: 64px;">`;
+        row.after(pv);
+      };
+      row.querySelector('.fm-rename').onclick = async (e) => {
+        e.preventDefault(); const to = prompt(`Rename ${f.name} to:`, f.name); if (!to || to === f.name) return;
+        try { await api(`/api/gifs/rename?folder=${enc(selected)}&name=${enc(f.name)}&to=${enc(to)}`, { method: 'POST' }); toast('Renamed', 'success'); selectFolder(selected, true); }
+        catch (err) { toast('Rename failed: ' + (err.message || err), 'error'); }
+      };
+      row.querySelector('.fm-del').onclick = async (e) => {
+        e.preventDefault(); if (!confirm(`Delete ${f.name} from ${selected}?`)) return;
+        try { await api(`/api/gifs/file?folder=${enc(selected)}&name=${enc(f.name)}`, { method: 'DELETE' }); toast(`Deleted ${f.name}`, 'success'); await selectFolder(selected, true); loadLibrary(false); }
+        catch (err) { toast('Delete failed: ' + (err.message || err), 'error'); }
+      };
+      list.appendChild(row);
+    });
+    moreBtn.style.display = shown < fl.length ? '' : 'none'; moreBtn.textContent = `Show more (${fl.length - shown} remaining)`;
+  }
+  moreBtn.onclick = () => renderFiles(files, false);
+
+  // ---------------- folder actions ----------------
+  mkdirBtn.onclick = async () => {
+    const name = (newFolder.value || '').trim(); if (!name) { toast('Type a folder name first.', 'error'); return; }
+    try { const r = await api('/api/gifs/mkdir?folder=' + enc(name), { method: 'POST' }); newFolder.value = ''; toast(`Created ${r.folder}`, 'success'); selected = r.folder; await loadLibrary(); }
+    catch (e) { toast('Create failed: ' + (e.message || e), 'error'); }
+  };
+  renameFolderBtn.onclick = async () => {
+    if (!selected) return; const to = prompt(`Rename folder ${selected} to:`, selected); if (!to || to === selected) return;
+    try { await api(`/api/gifs/rename?folder=${enc(selected)}&to=${enc(to)}`, { method: 'POST' }); toast('Folder renamed', 'success'); selected = to.trim(); await loadLibrary(); }
+    catch (e) { toast('Rename failed: ' + (e.message || e), 'error'); }
+  };
+  deleteFolderBtn.onclick = async () => {
+    if (!selected) return; if (!confirm(`Delete the whole playlist folder "${selected}" and every file in it? This cannot be undone.`)) return;
+    try { const d = await api('/api/gifs/folder?folder=' + enc(selected), { method: 'DELETE' }); toast(`Deleted ${selected} (${d.files} files)`, 'success'); selected = null; await loadLibrary(); selectFolder(null); }
+    catch (e) { toast('Delete failed: ' + (e.message || e), 'error'); }
+  };
+
+  // ---------------- uploads: queue by drop/browse, send with the Upload button ----------------
+  async function uploadBatch(folder, batch) {
+    const fd = new FormData(); batch.forEach(f => fd.append('file', f, f.name));
+    const r = await fetch('/api/gifs/upload?folder=' + enc(folder), { method: 'POST', headers: headers(), body: fd });
+    let body = {}; try { body = await r.json(); } catch (_) {}
+    if (!r.ok && !(body.saved && body.saved.length)) throw new Error(body.message || ('HTTP ' + r.status));
     return body;
   }
-
-  // groups: Map<folderName, File[]>
   async function uploadGroups(groups) {
     if (busy) { toast('An upload is already running.', 'info'); return; }
-    let total = 0; groups.forEach(v => total += v.length);
-    let done = 0, saved = 0, skipped = [];
+    let total = 0; groups.forEach(v => total += v.length); let done = 0, saved = 0, skipped = [];
     busy = true; uploadBtn.disabled = true; dropZone.style.opacity = '0.6';
     try {
-      for (const [folder, files] of groups) {
-        for (let i = 0; i < files.length; i += BATCH) {
-          const batch = files.slice(i, i + BATCH);
-          progress.textContent = `Uploading to ${folder}: ${done}/${total}…`;
-          const r = await uploadBatch(folder, batch);
-          saved += (r.saved || []).length; skipped = skipped.concat(r.skipped || []);
-          done += batch.length;
-        }
+      for (const [folder, fl] of groups) for (let i = 0; i < fl.length; i += BATCH) {
+        const batch = fl.slice(i, i + BATCH); progress.textContent = `Uploading to ${folder}: ${done}/${total}…`;
+        const r = await uploadBatch(folder, batch); saved += (r.saved || []).length; skipped = skipped.concat(r.skipped || []); done += batch.length;
       }
       progress.textContent = `Done: ${saved} saved` + (skipped.length ? `, ${skipped.length} skipped (${skipped.map(s => s.name).slice(0, 5).join(', ')}${skipped.length > 5 ? '…' : ''})` : '') + '.';
       toast(`Uploaded ${saved} file(s)` + (skipped.length ? `, ${skipped.length} skipped` : ''), skipped.length && !saved ? 'error' : 'success');
-    } catch (e) {
-      progress.textContent = 'Upload failed: ' + (e.message || e);
-      toast('Upload failed: ' + (e.message || e), 'error');
-    } finally {
-      // reindex automatically so the new files are live without a second click (needed on the ESP32, harmless on the Pi)
+    } catch (e) { progress.textContent = 'Upload failed: ' + (e.message || e); toast('Upload failed: ' + (e.message || e), 'error'); }
+    finally {
       try { await fetch('/api/gifs/reindex', { method: 'POST', headers: headers() }); } catch (_) {}
-      busy = false; dropZone.style.opacity = '';   // Upload stays disabled until something new is queued
-      filesIn.value = ''; dirIn.value = ''; newFolder.value = '';
-      loadLibrary();
+      busy = false; dropZone.style.opacity = ''; filesIn.value = ''; dirIn.value = '';
+      if (groups.size === 1) selected = Array.from(groups.keys())[0];
+      await loadLibrary();
     }
   }
-
-  // Build folder groups from a list of {file, relPath} and QUEUE them (the Upload button sends them).
-  // Top-level folder in relPath = playlist; loose files go to the target folder chosen above.
   function queueSelection(items) {
-    const groups = new Map();
-    let loose = 0;
+    const groups = new Map(); let looseNoTarget = 0;
     items.forEach(({ file, relPath }) => {
       if (!ALLOWED.test(file.name)) return;
       const parts = (relPath || file.name).split('/').filter(Boolean);
-      let folder;
-      if (parts.length > 1) folder = parts[0];
-      else { folder = targetFolder(); loose++; }
-      if (!folder) return;
-      if (!groups.has(folder)) groups.set(folder, []);
-      groups.get(folder).push(file);
+      const folder = parts.length > 1 ? parts[0] : selected;
+      if (!folder) { looseNoTarget++; return; }
+      if (!groups.has(folder)) groups.set(folder, []); groups.get(folder).push(file);
     });
-    if (!groups.size) {
-      pending = null; uploadBtn.disabled = true;
-      progress.textContent = loose === 0 && items.length ? 'Pick a target playlist or type a new name for loose files, then choose them again.' : 'No .gif/.png/.raw files in that selection.';
-      return;
-    }
-    pending = groups; uploadBtn.disabled = false;
-    let n = 0; groups.forEach(v => n += v.length);
-    progress.textContent = `${n} file(s) queued for ${groups.size} playlist(s): ${Array.from(groups.keys()).join(', ')}. Click Upload to send.`;
+    if (!groups.size) { pending = null; uploadBtn.disabled = true; progress.textContent = looseNoTarget ? 'Select a folder on the left first, then choose the files again.' : 'No .gif/.png/.raw files in that selection.'; return; }
+    pending = groups; uploadBtn.disabled = false; let n = 0; groups.forEach(v => n += v.length);
+    progress.textContent = `${n} file(s) queued for ${groups.size} playlist(s): ${Array.from(groups.keys()).join(', ')}. Click Upload to send.` + (looseNoTarget ? ` (${looseNoTarget} loose file(s) ignored: no folder selected.)` : '');
   }
-
-  // Walk dropped DataTransfer items (files AND folders) into {file, relPath}
   async function collectDropped(dt) {
-    const out = [];
-    const items = dt.items ? Array.from(dt.items) : [];
+    const out = []; const items = dt.items ? Array.from(dt.items) : [];
     const entries = items.map(it => (it.webkitGetAsEntry ? it.webkitGetAsEntry() : null)).filter(Boolean);
     if (!entries.length) { Array.from(dt.files || []).forEach(f => out.push({ file: f, relPath: f.name })); return out; }
-    const readAll = (dirReader) => new Promise((resolve, reject) => {
-      const all = [];
-      const step = () => dirReader.readEntries(batch => { if (!batch.length) resolve(all); else { all.push(...batch); step(); } }, reject);
-      step();
-    });
+    const readAll = (rd) => new Promise((res, rej) => { const all = []; const step = () => rd.readEntries(b => { if (!b.length) res(all); else { all.push(...b); step(); } }, rej); step(); });
     const walk = async (entry, prefix) => {
-      if (entry.isFile) {
-        const file = await new Promise((res, rej) => entry.file(res, rej));
-        out.push({ file, relPath: prefix + entry.name });
-      } else if (entry.isDirectory) {
-        const children = await readAll(entry.createReader());
-        for (const c of children) await walk(c, prefix + entry.name + '/');
-      }
+      if (entry.isFile) { const file = await new Promise((res, rej) => entry.file(res, rej)); out.push({ file, relPath: prefix + entry.name }); }
+      else if (entry.isDirectory) { for (const c of await readAll(entry.createReader())) await walk(c, prefix + entry.name + '/'); }
     };
-    for (const e of entries) await walk(e, '');
-    return out;
+    for (const e of entries) await walk(e, ''); return out;
   }
-
   ['dragenter', 'dragover'].forEach(ev => dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.style.borderColor = 'var(--accent, #6cf)'; }));
   ['dragleave', 'drop'].forEach(ev => dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.style.borderColor = 'rgba(255,255,255,0.2)'; }));
-  dropZone.addEventListener('drop', async e => { const items = await collectDropped(e.dataTransfer); queueSelection(items); });
+  dropZone.addEventListener('drop', async e => queueSelection(await collectDropped(e.dataTransfer)));
   dropZone.addEventListener('click', e => { if (e.target === pickDir) return; filesIn.click(); });
   pickDir.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); dirIn.click(); });
   filesIn.onchange = () => queueSelection(Array.from(filesIn.files || []).map(f => ({ file: f, relPath: f.name })));
   dirIn.onchange = () => queueSelection(Array.from(dirIn.files || []).map(f => ({ file: f, relPath: f.webkitRelativePath || f.name })));
-
-
-  // ---- folder contents panel: list files, delete a file, delete the whole folder ----
-  const panel = $('gif-lib-files-panel'), panelTitle = $('gif-lib-files-title'), panelFiles = $('gif-lib-file-list'), panelClose = $('gif-lib-files-close'), folderDel = $('gif-lib-folder-delete');
-  let openFolder = null;
-  const fmtBytes = (b) => b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : b >= 1024 ? Math.round(b / 1024) + ' KB' : b + ' B';
-  async function showFolder(name) {
-    try {
-      const res = await fetch('/api/gifs/files?folder=' + encodeURIComponent(name), { headers: headers() });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-      openFolder = name; panel.style.display = '';
-      panelTitle.textContent = `${name} · ${data.files.length} file(s)`;
-      panelFiles.innerHTML = data.files.length ? data.files.map(f => `<span>${f.name} <span style="opacity:0.6">${fmtBytes(f.bytes)}</span> <a href="#" class="gif-lib-del" data-name="${f.name}" title="Delete this file" style="color: #f87171; text-decoration: none; margin-left: 0.2rem;">✕</a></span>`).join('') : '<span>Empty folder.</span>';
-      panelFiles.querySelectorAll('.gif-lib-del').forEach(a => a.onclick = async (e) => {
-        e.preventDefault(); const fn = a.dataset.name;
-        if (!confirm(`Delete ${fn} from ${name}?`)) return;
-        try {
-          const r = await fetch(`/api/gifs/file?folder=${encodeURIComponent(name)}&name=${encodeURIComponent(fn)}`, { method: 'DELETE', headers: headers() });
-          if (!r.ok) throw new Error('HTTP ' + r.status);
-          toast(`Deleted ${fn}`, 'success'); showFolder(name); loadLibrary();
-        } catch (err) { toast('Delete failed: ' + (err.message || err), 'error'); }
-      });
-    } catch (e) { toast('Could not list folder: ' + (e.message || e), 'error'); }
-  }
-  panelClose.onclick = () => { panel.style.display = 'none'; openFolder = null; };
-  folderDel.onclick = async () => {
-    if (!openFolder) return;
-    if (!confirm(`Delete the whole playlist folder "${openFolder}" and every file in it? This cannot be undone.`)) return;
-    try {
-      const r = await fetch('/api/gifs/folder?folder=' + encodeURIComponent(openFolder), { method: 'DELETE', headers: headers() });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const d = await r.json(); toast(`Deleted folder ${openFolder} (${d.files} files)`, 'success');
-      panel.style.display = 'none'; openFolder = null; loadLibrary();
-    } catch (err) { toast('Delete failed: ' + (err.message || err), 'error'); }
-  };
-
-  uploadBtn.onclick = () => { if (!pending) { toast('Choose files or a folder first.', 'error'); return; } const g = pending; pending = null; uploadBtn.disabled = true; uploadGroups(g); };
-
+  uploadBtn.onclick = () => { if (!pending) { toast('Choose files or a folder first.', 'error'); return; } const g = pending; pending = null; uploadGroups(g); };
 
   loadLibrary();
 }
