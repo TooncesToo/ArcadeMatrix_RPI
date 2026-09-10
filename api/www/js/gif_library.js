@@ -14,6 +14,9 @@ export function initGifLibrary() {
   const fmtBytes = (b) => b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : b >= 1024 ? Math.round(b / 1024) + ' KB' : b + ' B';
   const BATCH = 6, PAGE = 100, ALLOWED = /\.(gif|png|raw)$/i;
   let folders = {}, selected = null, files = [], shown = 0, pending = null, busy = false;
+  // media fetch through the authenticated path (works with the API token on, no URL tokens)
+  async function fetchBlobUrl(url) { const r = await fetch(url, { headers: headers() }); if (!r.ok) throw new Error('HTTP ' + r.status); return URL.createObjectURL(await r.blob()); }
+  async function downloadFile(url, name) { try { const u = await fetchBlobUrl(url); const a = document.createElement('a'); a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 10000); } catch (e) { toast('Download failed: ' + (e.message || e), 'error'); } }
 
   // ---------------- folders (left pane) ----------------
   async function loadLibrary(keep) {
@@ -54,7 +57,7 @@ export function initGifLibrary() {
       const url = `/api/gifs/file?folder=${enc(selected)}&name=${enc(f.name)}`;
       row.innerHTML = `<a href="#" class="fm-name" style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; text-decoration: none;" title="Click to preview">${esc(f.name)}</a>
         <span class="text-muted" style="white-space: nowrap;">${fmtBytes(f.bytes)}</span>
-        <a href="${url}&download=1" class="text-muted" title="Download" style="text-decoration: none;">⤓</a>
+        <a href="#" class="fm-dl text-muted" title="Download" style="text-decoration: none;">⤓</a>
         <a href="#" class="fm-rename text-muted" title="Rename" style="text-decoration: none;">✎</a>
         <a href="#" class="fm-del" title="Delete" style="color: #f87171; text-decoration: none;">✕</a>`;
       const nameEl = row.querySelector('.fm-name');
@@ -62,9 +65,10 @@ export function initGifLibrary() {
         e.preventDefault(); let pv = row.nextElementSibling;
         if (pv && pv.classList.contains('fm-preview')) { pv.remove(); return; }
         pv = document.createElement('div'); pv.className = 'fm-preview'; pv.style.cssText = 'padding: 0.4rem; background: rgba(0,0,0,0.3);';
-        pv.innerHTML = `<img src="${url}" alt="${esc(f.name)}" style="image-rendering: pixelated; max-width: 100%; height: 64px;">`;
-        row.after(pv);
+        pv.innerHTML = `<span class="text-muted">loading…</span>`; row.after(pv);
+        fetchBlobUrl(url).then(u => { pv.innerHTML = `<img src="${u}" alt="${esc(f.name)}" style="image-rendering: pixelated; max-width: 100%; height: 64px;">`; }).catch(err => { pv.innerHTML = `<span class="text-muted">preview failed: ${esc(err.message || err)}</span>`; });
       };
+      row.querySelector('.fm-dl').onclick = (e) => { e.preventDefault(); downloadFile(url + '&download=1', f.name); };
       row.querySelector('.fm-rename').onclick = async (e) => {
         e.preventDefault(); const to = prompt(`Rename ${f.name} to:`, f.name); if (!to || to === f.name) return;
         try { await api(`/api/gifs/rename?folder=${enc(selected)}&name=${enc(f.name)}&to=${enc(to)}`, { method: 'POST' }); toast('Renamed', 'success'); selectFolder(selected, true); }
