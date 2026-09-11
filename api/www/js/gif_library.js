@@ -1,4 +1,6 @@
 // GIF Library file manager (v2): folders left, files right; drop/browse queues, Upload sends; mkdir/rename/delete/preview/download (parity with the ESP32 firmware)
+import { t } from './i18n.js';
+
 export function initGifLibrary() {
   const $ = (id) => document.getElementById(id);
   const folderList = $('gif-fm-folder-list'), newFolder = $('gif-fm-newfolder'), mkdirBtn = $('gif-fm-mkdir');
@@ -6,7 +8,8 @@ export function initGifLibrary() {
   const dropZone = $('gif-fm-drop'), dropTarget = $('gif-fm-drop-target'), pickDir = $('gif-fm-pick-dir'), filesIn = $('gif-fm-files-input'), dirIn = $('gif-fm-dir-input');
   const list = $('gif-fm-list'), moreBtn = $('gif-fm-more'), progress = $('gif-lib-progress'), uploadBtn = $('gif-lib-upload-btn');
   if (!folderList || !dropZone || !uploadBtn) return;
-  const toast = (m, t) => (window.showToast ? window.showToast(m, t) : console.log(t, m));
+  const toast = (m, kind) => (window.showToast ? window.showToast(m, kind) : console.log(kind, m));
+  const tr = (k, f, v) => { let s = (typeof t === 'function') ? t(k, f) : f; if (v) Object.keys(v).forEach(x => { s = s.split('{' + x + '}').join(v[x]); }); return s; };
   const headers = () => { const h = {}; const tok = localStorage.getItem('api_token'); if (tok) h['X-API-Token'] = tok; return h; };
   const api = async (url, opts) => { const r = await fetch(url, Object.assign({ headers: headers() }, opts || {})); let b = {}; try { b = await r.json(); } catch (_) {} if (!r.ok) throw new Error(b.message || ('HTTP ' + r.status)); return b; };
   const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -36,12 +39,12 @@ export function initGifLibrary() {
   }
 
   async function selectFolder(name, silent) {
-    selected = name; dropTarget.textContent = name ? `“${name}”` : 'the selected folder';
+    selected = name; dropTarget.textContent = name ? `“${name}”` : tr('gifs_drop_target_default', 'the selected folder');
     folderList.querySelectorAll('button').forEach(b => { b.style.border = b.dataset.folder === name ? '1px solid var(--accent, #6cf)' : ''; b.style.opacity = b.dataset.folder === name ? '1' : '0.85'; });
-    if (!name) { title.textContent = 'Select a folder'; countEl.textContent = ''; folderActions.style.display = 'none'; renderFiles([]); return; }
+    if (!name) { title.textContent = tr('gifs_select_folder', 'Select a folder'); countEl.textContent = ''; folderActions.style.display = 'none'; renderFiles([]); return; }
     try {
       const data = await api('/api/gifs/files?folder=' + enc(name));
-      files = data.files || []; title.textContent = name; countEl.textContent = `${files.length} file(s)`; folderActions.style.display = '';
+      files = data.files || []; title.textContent = name; countEl.textContent = tr('gifs_files_count', '{n} file(s)', { n: files.length }); folderActions.style.display = '';
       renderFiles(files, true);
     } catch (e) { if (!silent) toast('Could not list folder: ' + (e.message || e), 'error'); }
   }
@@ -49,7 +52,7 @@ export function initGifLibrary() {
   // ---------------- files (right pane) ----------------
   function renderFiles(fl, reset) {
     if (reset) { list.innerHTML = ''; shown = 0; }
-    if (!fl.length) { if (selected) list.innerHTML = '<div class="text-muted" style="padding: 0.4rem;">Empty folder.</div>'; else list.innerHTML = ''; moreBtn.style.display = 'none'; return; }
+    if (!fl.length) { if (selected) list.innerHTML = `<div class="text-muted" style="padding: 0.4rem;">${tr('gifs_empty_folder', 'Empty folder.')}</div>`; else list.innerHTML = ''; moreBtn.style.display = 'none'; return; }
     const slice = fl.slice(shown, shown + PAGE); shown += slice.length;
     slice.forEach(f => {
       const row = document.createElement('div');
@@ -75,13 +78,13 @@ export function initGifLibrary() {
         catch (err) { toast('Rename failed: ' + (err.message || err), 'error'); }
       };
       row.querySelector('.fm-del').onclick = async (e) => {
-        e.preventDefault(); if (!confirm(`Delete ${f.name} from ${selected}?`)) return;
+        e.preventDefault(); if (!confirm(tr('gifs_confirm_delete_file', 'Delete {name} from {folder}?', { name: f.name, folder: selected }))) return;
         try { await api(`/api/gifs/file?folder=${enc(selected)}&name=${enc(f.name)}`, { method: 'DELETE' }); toast(`Deleted ${f.name}`, 'success'); await selectFolder(selected, true); loadLibrary(false); }
         catch (err) { toast('Delete failed: ' + (err.message || err), 'error'); }
       };
       list.appendChild(row);
     });
-    moreBtn.style.display = shown < fl.length ? '' : 'none'; moreBtn.textContent = `Show more (${fl.length - shown} remaining)`;
+    moreBtn.style.display = shown < fl.length ? '' : 'none'; moreBtn.textContent = `${tr('gifs_show_more', 'Show more')} (${fl.length - shown})`;
   }
   moreBtn.onclick = () => renderFiles(files, false);
 
@@ -97,7 +100,7 @@ export function initGifLibrary() {
     catch (e) { toast('Rename failed: ' + (e.message || e), 'error'); }
   };
   deleteFolderBtn.onclick = async () => {
-    if (!selected) return; if (!confirm(`Delete the whole playlist folder "${selected}" and every file in it? This cannot be undone.`)) return;
+    if (!selected) return; if (!confirm(tr('gifs_confirm_delete_folder', 'Delete the whole playlist folder "{folder}" and every file in it? This cannot be undone.', { folder: selected }))) return;
     try { const d = await api('/api/gifs/folder?folder=' + enc(selected), { method: 'DELETE' }); toast(`Deleted ${selected} (${d.files} files)`, 'success'); selected = null; await loadLibrary(); selectFolder(null); }
     catch (e) { toast('Delete failed: ' + (e.message || e), 'error'); }
   };
@@ -116,10 +119,10 @@ export function initGifLibrary() {
     busy = true; uploadBtn.disabled = true; dropZone.style.opacity = '0.6';
     try {
       for (const [folder, fl] of groups) for (let i = 0; i < fl.length; i += BATCH) {
-        const batch = fl.slice(i, i + BATCH); progress.textContent = `Uploading to ${folder}: ${done}/${total}…`;
+        const batch = fl.slice(i, i + BATCH); progress.textContent = tr('gifs_uploading', 'Uploading to {folder}: {done}/{total}…', { folder, done, total });
         const r = await uploadBatch(folder, batch); saved += (r.saved || []).length; skipped = skipped.concat(r.skipped || []); done += batch.length;
       }
-      progress.textContent = `Done: ${saved} saved` + (skipped.length ? `, ${skipped.length} skipped (${skipped.map(s => s.name).slice(0, 5).join(', ')}${skipped.length > 5 ? '…' : ''})` : '') + '.';
+      progress.textContent = tr('gifs_done', 'Done: {saved} saved', { saved }) + (skipped.length ? tr('gifs_skipped', ', {n} skipped', { n: skipped.length }) + ` (${skipped.map(s => s.name).slice(0, 5).join(', ')}${skipped.length > 5 ? '…' : ''})` : '') + '.';
       toast(`Uploaded ${saved} file(s)` + (skipped.length ? `, ${skipped.length} skipped` : ''), skipped.length && !saved ? 'error' : 'success');
     } catch (e) { progress.textContent = 'Upload failed: ' + (e.message || e); toast('Upload failed: ' + (e.message || e), 'error'); }
     finally {
@@ -138,9 +141,9 @@ export function initGifLibrary() {
       if (!folder) { looseNoTarget++; return; }
       if (!groups.has(folder)) groups.set(folder, []); groups.get(folder).push(file);
     });
-    if (!groups.size) { pending = null; uploadBtn.disabled = true; progress.textContent = looseNoTarget ? 'Select a folder on the left first, then choose the files again.' : 'No .gif/.png/.raw files in that selection.'; return; }
+    if (!groups.size) { pending = null; uploadBtn.disabled = true; progress.textContent = looseNoTarget ? tr('gifs_select_first', 'Select a folder on the left first, then choose the files again.') : tr('gifs_none_valid', 'No .gif/.png/.raw files in that selection.'); return; }
     pending = groups; uploadBtn.disabled = false; let n = 0; groups.forEach(v => n += v.length);
-    progress.textContent = `${n} file(s) queued for ${groups.size} playlist(s): ${Array.from(groups.keys()).join(', ')}. Click Upload to send.` + (looseNoTarget ? ` (${looseNoTarget} loose file(s) ignored: no folder selected.)` : '');
+    progress.textContent = tr('gifs_queued', '{n} file(s) queued for {k} playlist(s): {list}. Click Upload to send.', { n, k: groups.size, list: Array.from(groups.keys()).join(', ') }) + (looseNoTarget ? ` (${looseNoTarget} loose file(s) ignored: no folder selected.)` : '');
   }
   async function collectDropped(dt) {
     const out = []; const items = dt.items ? Array.from(dt.items) : [];

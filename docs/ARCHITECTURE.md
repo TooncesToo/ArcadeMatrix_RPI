@@ -649,8 +649,19 @@ All endpoints are actix handlers in `src/api/server.rs`; static web assets are e
 | GET | `/api/action/reboot` · POST `/api/system/reboot` | Reboot the Pi |
 | POST | `/api/system/shutdown` | Shut down the Pi |
 | POST | `/api/system/power` | Live matrix power on/off |
+| GET | `/api/gifs/library` | Playlist folders under `gifs/` with file counts (live scan) |
+| GET | `/api/gifs/files?folder=` | Files (name, bytes) of one playlist folder |
+| GET | `/api/gifs/file?folder=&name=` | Serve one media file (inline preview; `download=1` for attachment) |
+| POST | `/api/gifs/upload?folder=` | Multipart upload of one or many files into a playlist folder (created if missing) |
+| POST | `/api/gifs/mkdir?folder=` | Create a playlist folder |
+| POST | `/api/gifs/rename?folder=&to=[&name=]` | Rename a folder, or a file when `name` is given |
+| POST | `/api/gifs/reindex` | Rescan the library (the Pi scans live; parity with the ESP32 index rebuild) |
+| DELETE | `/api/gifs/file?folder=&name=` | Delete one file |
+| DELETE | `/api/gifs/folder?folder=` | Delete a playlist folder recursively |
 
 Every mutating handler runs behind `check_auth` when `api_auth_enabled` is set.
+
+GIF library endpoints live in `src/api/gifs.rs` and share `check_auth`.
 
 ---
 

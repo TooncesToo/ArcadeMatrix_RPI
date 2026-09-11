@@ -649,8 +649,19 @@ Todos los endpoints son handlers actix en `src/api/server.rs`; los assets web es
 | GET | `/api/action/reboot` · POST `/api/system/reboot` | Reiniciar la Pi |
 | POST | `/api/system/shutdown` | Apagar la Pi |
 | POST | `/api/system/power` | Encendido/apagado en vivo de la matriz |
+| GET | `/api/gifs/library` | Carpetas de playlists bajo `gifs/` con el número de archivos (escaneo en vivo) |
+| GET | `/api/gifs/files?folder=` | Archivos (nombre, bytes) de una carpeta de playlist |
+| GET | `/api/gifs/file?folder=&name=` | Sirve un archivo multimedia (vista previa inline; `download=1` para descargar) |
+| POST | `/api/gifs/upload?folder=` | Subida multipart de uno o varios archivos a una carpeta de playlist (se crea si no existe) |
+| POST | `/api/gifs/mkdir?folder=` | Crea una carpeta de playlist |
+| POST | `/api/gifs/rename?folder=&to=[&name=]` | Renombra una carpeta, o un archivo si se indica `name` |
+| POST | `/api/gifs/reindex` | Reescanea la biblioteca (el Pi escanea en vivo; paridad con la reconstrucción de índices del ESP32) |
+| DELETE | `/api/gifs/file?folder=&name=` | Elimina un archivo |
+| DELETE | `/api/gifs/folder?folder=` | Elimina recursivamente una carpeta de playlist |
 
 Cada handler mutador pasa por `check_auth` cuando `api_auth_enabled` está activo.
+
+Los endpoints de la biblioteca GIF están en `src/api/gifs.rs` y comparten `check_auth`.
 
 ---
 
