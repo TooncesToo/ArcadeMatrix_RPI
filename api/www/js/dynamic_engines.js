@@ -367,6 +367,7 @@ window.switchToScreenTab = function(instanceId) {
 
 // Modal for 1-Click Interactive Screen Creation (100% Schema-Driven)
 export function showAddScreenModal(selectedEngineId, descriptors, instancesList, defaultAddToRotation = true) {
+  let primaryField = null;   // set by renderModalContent(), read by the Create handler
   const existingModal = document.getElementById('add-screen-modal-overlay');
   if (existingModal) existingModal.remove();
 
@@ -496,7 +497,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
       `;
     } else {
       // Dynamic fallback for any schema
-      const primaryField = (fields && fields.length > 0) ? (
+      primaryField = (fields && fields.length > 0) ? (
         fields.find(f => (isOptionsField(f) || (f.options && f.options.length > 0) || f.options_endpoint) && !isFileAssetField(f)) ||
         fields.find(f => !isBooleanField(f) && !isNumberField(f) && !isColorField(f) && !isFileAssetField(f)) ||
         fields.find(f => isFileAssetField(f))
