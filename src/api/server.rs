@@ -1272,6 +1272,8 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(crate::api::gifs::get_gifs_library)
             .service(crate::api::gifs::post_gifs_upload)
             .service(crate::api::gifs::post_gifs_reindex)
+            .service(crate::api::gifs::get_gifs_reindex_status)
+            .service(crate::api::gifs::delete_gifs_reindex)
             .service(crate::api::gifs::delete_gifs_file)
             .service(crate::api::gifs::get_gifs_files)
             .service(crate::api::gifs::delete_gifs_folder)

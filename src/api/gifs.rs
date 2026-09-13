@@ -12,7 +12,9 @@ use std::path::Path;
 // GIF LIBRARY MANAGEMENT (parity with the ESP32 firmware: /api/gifs/*)
 //   GET    /api/gifs/library                  -> live scan of the gifs root (folders + counts)
 //   POST   /api/gifs/upload?folder=<Name>     -> multipart upload of one or many files
-//   POST   /api/gifs/reindex                  -> the RPi scans live; returns the library (no index files needed)
+//   POST   /api/gifs/reindex                  -> the RPi scans live; shows an 'Indexing' notice on the panel, returns the library
+//   GET    /api/gifs/reindex/status           -> same shape as the ESP32 (running/last_result/...)
+//   DELETE /api/gifs/reindex                  -> mirrors the ESP32 cancel route (409: nothing to cancel here)
 //   DELETE /api/gifs/file?folder=<N>&name=<F> -> delete one file
 // =====================================================================================
 
@@ -106,13 +108,76 @@ async fn post_gifs_reindex(req: HttpRequest, data: web::Data<AppState>) -> impl 
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
-    // The RPi GIF engine scans folders live, so there is nothing to rebuild; this mirrors the
-    // ESP32 endpoint (which rewrites index.txt / playlists.json) and returns the same shape.
+    // The RPi GIF engine scans folders live, so there is nothing to rebuild; the scan itself takes well under a
+    // second here. To behave like the ESP32 (where the same button runs for minutes) the panel still shows an
+    // "Indexing library" notice for the duration, with a short minimum so it is actually visible.
+    let started = std::time::Instant::now();
+    REINDEX_RUNNING.store(true, std::sync::atomic::Ordering::Relaxed);
+    data.config
+        .set_message_payload(Some(crate::engines::message::MessagePayload::new(
+            "Indexing GIF library...".to_string(),
+            "#00ffff",
+            1,
+            "rtl",
+            0,
+        )));
     let mut lib = gifs_scan_library();
+    let files: u64 = lib
+        .get("folders")
+        .and_then(|f| f.as_object())
+        .map(|m| {
+            m.values()
+                .filter_map(|v| v.get("count").and_then(|c| c.as_u64()))
+                .sum()
+        })
+        .unwrap_or(0);
+    let folders = lib
+        .get("folders")
+        .and_then(|f| f.as_object())
+        .map(|m| m.len())
+        .unwrap_or(0);
+    // keep the notice on screen for at least two seconds so the user sees the sign react
+    let min_visible = std::time::Duration::from_millis(2000);
+    if started.elapsed() < min_visible {
+        actix_web::rt::time::sleep(min_visible - started.elapsed()).await;
+    }
+    data.config.set_message_payload(None);
+    REINDEX_RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
+    let result = format!("ok: {} folders, {} files", folders, files);
+    *LAST_REINDEX.lock().unwrap() = (result.clone(), started.elapsed().as_millis() as u64, files);
     if let Some(obj) = lib.as_object_mut() {
         obj.insert("status".to_string(), json!("ok"));
+        obj.insert("files".to_string(), json!(files));
+        obj.insert("last_result".to_string(), json!(result));
     }
     HttpResponse::Ok().json(lib)
+}
+
+static REINDEX_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static LAST_REINDEX: std::sync::Mutex<(String, u64, u64)> =
+    std::sync::Mutex::new((String::new(), 0, 0));
+
+/// Same shape as the ESP32 status route so the dashboard card can poll either firmware.
+#[get("/api/gifs/reindex/status")]
+async fn get_gifs_reindex_status(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    let (result, elapsed, files) = LAST_REINDEX.lock().unwrap().clone();
+    HttpResponse::Ok().json(json!({
+        "running": REINDEX_RUNNING.load(std::sync::atomic::Ordering::Relaxed),
+        "total": 0, "done": 0, "files": files, "expected": 0, "eta": "", "cancelling": false,
+        "current": "", "last_result": result, "elapsed_ms": elapsed
+    }))
+}
+
+/// Mirrors the ESP32 cancel route; the RPi scan is synchronous, so there is never anything to cancel.
+#[delete("/api/gifs/reindex")]
+async fn delete_gifs_reindex(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    HttpResponse::Conflict().json(json!({"status": "idle"}))
 }
 
 #[delete("/api/gifs/file")]
