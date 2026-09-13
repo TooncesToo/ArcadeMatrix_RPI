@@ -6,7 +6,7 @@ export function initGifLibrary() {
   const folderList = $('gif-fm-folder-list'), newFolder = $('gif-fm-newfolder'), mkdirBtn = $('gif-fm-mkdir');
   const title = $('gif-fm-title'), countEl = $('gif-fm-count'), folderActions = $('gif-fm-folder-actions'), renameFolderBtn = $('gif-fm-rename-folder'), deleteFolderBtn = $('gif-fm-delete-folder');
   const dropZone = $('gif-fm-drop'), dropTarget = $('gif-fm-drop-target'), pickDir = $('gif-fm-pick-dir'), filesIn = $('gif-fm-files-input'), dirIn = $('gif-fm-dir-input');
-  const list = $('gif-fm-list'), moreBtn = $('gif-fm-more'), progress = $('gif-lib-progress'), uploadBtn = $('gif-lib-upload-btn');
+  const list = $('gif-fm-list'), moreBtn = $('gif-fm-more'), rescanBtn = $('gif-fm-rescan'), progress = $('gif-lib-progress'), uploadBtn = $('gif-lib-upload-btn');
   if (!folderList || !dropZone || !uploadBtn) return;
   const toast = (m, kind) => (window.showToast ? window.showToast(m, kind) : console.log(kind, m));
   const tr = (k, f, v) => { let s = (typeof t === 'function') ? t(k, f) : f; if (v) Object.keys(v).forEach(x => { s = s.split('{' + x + '}').join(v[x]); }); return s; };
@@ -14,13 +14,63 @@ export function initGifLibrary() {
   const api = async (url, opts) => { const r = await fetch(url, Object.assign({ headers: headers() }, opts || {})); let b = {}; try { b = await r.json(); } catch (_) {} if (!r.ok) throw new Error(b.message || ('HTTP ' + r.status)); return b; };
   const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const enc = encodeURIComponent;
-  const fmtBytes = (b) => b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : b >= 1024 ? Math.round(b / 1024) + ' KB' : b + ' B';
+  const fmtBytes = (b) => (b === undefined || b === null) ? '' : b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : b >= 1024 ? Math.round(b / 1024) + ' KB' : b + ' B';
   const BATCH = 6, PAGE = 100, ALLOWED = /\.(gif|png|raw)$/i;
   let folders = {}, selected = null, files = [], shown = 0, pending = null, busy = false;
+  let selSeq = 0;                 // ignore folder listings that arrive after a newer selection
+  let previewCtl = null;          // one preview fetch at a time (matters on the ESP32; harmless here)
+  const PREVIEW_AUTO_MAX = 512 * 1024;
   // media fetch through the authenticated path (works with the API token on, no URL tokens)
   async function fetchBlobUrl(url) { const r = await fetch(url, { headers: headers() }); if (!r.ok) throw new Error('HTTP ' + r.status); return URL.createObjectURL(await r.blob()); }
   async function downloadFile(url, name) { try { const u = await fetchBlobUrl(url); const a = document.createElement('a'); a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 10000); } catch (e) { toast('Download failed: ' + (e.message || e), 'error'); } }
 
+  // ---------------- in-page confirm (the browser's confirm() is easy to miss) ----------------
+  function fmConfirm(titleText, bodyText, okText) {
+    return new Promise(resolve => {
+      const ov = document.createElement('div'); ov.className = 'modal-overlay'; ov.style.cssText = 'position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+      ov.innerHTML = `<div class="card" style="max-width: 460px; width: 92%; padding: 1.2rem; background: var(--bg-secondary, #111827); border: 1px solid var(--accent-primary, #6cf); border-radius: 10px;">
+          <h3 style="margin: 0 0 0.6rem 0;">${esc(titleText)}</h3>
+          <p style="margin: 0 0 1rem 0; line-height: 1.4;">${esc(bodyText)}</p>
+          <div style="display: flex; gap: 0.6rem; justify-content: flex-end;">
+            <button class="btn" data-act="cancel">${tr('gifs_cancel', 'Cancel')}</button>
+            <button class="btn btn-primary" data-act="ok">${esc(okText)}</button>
+          </div></div>`;
+      const done = (v) => { ov.remove(); resolve(v); };
+      ov.querySelector('[data-act="cancel"]').onclick = () => done(false);
+      ov.querySelector('[data-act="ok"]').onclick = () => done(true);
+      ov.onclick = (e) => { if (e.target === ov) done(false); };
+      document.body.appendChild(ov);
+    });
+  }
+  // ---------------- full rescan (background + polled on the ESP32; synchronous on the RPi) ----------------
+  async function pollRescan() {
+    for (;;) {
+      await new Promise(r => setTimeout(r, 2000));
+      let st = {}; try { st = await api('/api/gifs/reindex/status'); } catch (_) { continue; }
+      if (st.running) {
+        const pct = st.expected ? Math.min(100, Math.round((st.files || 0) * 100 / st.expected)) : (st.total ? Math.round((st.done || 0) * 100 / st.total) : 0);
+        progress.innerHTML = `<div style="display:flex; align-items:center; gap:0.6rem;"><div style="flex:1; height:8px; background: rgba(255,255,255,0.12); border-radius:4px; overflow:hidden;"><div style="width:${pct}%; height:100%; background: var(--accent-primary, #6cf); transition: width 0.4s;"></div></div><span style="white-space:nowrap;">${esc(tr('gifs_rescan_progress', 'Rescanning {done}/{total}: {current}', { done: st.done || 0, total: st.total || '?', current: st.current || '' }))} · ${(st.files || 0).toLocaleString()}${st.expected ? '/' + st.expected.toLocaleString() : ''} ${esc(tr('gifs_files_word', 'files'))} · ${Math.round((st.elapsed_ms || 0) / 1000)}s${st.eta ? ' · ' + esc(st.eta) : ''}${st.cancelling ? ' · ' + esc(tr('gifs_rescan_cancelling', 'cancelling…')) : ''}</span><a href="#" class="fm-rescan-cancel" style="white-space:nowrap;">${esc(tr('gifs_cancel', 'Cancel'))}</a></div>`;
+        const c = progress.querySelector('.fm-rescan-cancel'); if (c) c.onclick = async (e) => { e.preventDefault(); try { await fetch('/api/gifs/reindex', { method: 'DELETE', headers: headers() }); } catch (_) {} };
+        continue;
+      }
+      progress.textContent = tr('gifs_rescan_done', 'Rescan finished ({result})', { result: st.last_result || '' }) + ` · ${(st.files || 0).toLocaleString()} ${tr('gifs_files_word', 'files')} · ${Math.round((st.elapsed_ms || 0) / 1000)}s`;
+      return;
+    }
+  }
+  if (rescanBtn) rescanBtn.addEventListener('click', async () => {
+    if (busy) return;
+    if (!await fmConfirm(tr('gifs_rescan', '🔄 Rescan library'), tr('gifs_rescan_confirm', 'Rebuild the index of every folder from the card? On a large library this takes minutes and the panel pauses meanwhile.'), tr('gifs_rescan_go', 'Continue'))) return;
+    busy = true; rescanBtn.disabled = true;
+    try {
+      const r = await fetch('/api/gifs/reindex', { method: 'POST', headers: headers() });
+      if (r.status === 202) { progress.textContent = tr('gifs_rescan_started', 'Rescan started…'); await pollRescan(); }
+      else if (r.status === 409) { toast(tr('gifs_rescan_busy', 'A rescan is already running'), 'info'); await pollRescan(); }
+      else if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(b.message || ('HTTP ' + r.status)); }
+      else { progress.textContent = tr('gifs_rescan_done', 'Rescan finished ({result})', { result: 'ok' }); }   // synchronous firmware (RPi)
+      await loadLibrary(true);
+    } catch (e) { toast('Rescan failed: ' + (e.message || e), 'error'); }
+    finally { busy = false; rescanBtn.disabled = false; }
+  });
   // ---------------- folders (left pane) ----------------
   async function loadLibrary(keep) {
     try {
@@ -42,11 +92,16 @@ export function initGifLibrary() {
     selected = name; dropTarget.textContent = name ? `“${name}”` : tr('gifs_drop_target_default', 'the selected folder');
     folderList.querySelectorAll('button').forEach(b => { b.style.border = b.dataset.folder === name ? '1px solid var(--accent, #6cf)' : ''; b.style.opacity = b.dataset.folder === name ? '1' : '0.85'; });
     if (!name) { title.textContent = tr('gifs_select_folder', 'Select a folder'); countEl.textContent = ''; folderActions.style.display = 'none'; renderFiles([]); return; }
+    const seq = ++selSeq;
+    if (previewCtl) { previewCtl.abort(); previewCtl = null; }
+    title.textContent = name; countEl.textContent = ''; folderActions.style.display = '';
+    list.innerHTML = `<div class="text-muted" style="padding: 0.4rem;">${tr('gifs_loading', 'Loading…')}</div>`; moreBtn.style.display = 'none';
     try {
       const data = await api('/api/gifs/files?folder=' + enc(name));
-      files = data.files || []; title.textContent = name; countEl.textContent = tr('gifs_files_count', '{n} file(s)', { n: files.length }); folderActions.style.display = '';
+      if (seq !== selSeq) return;   // the user moved on to another folder meanwhile
+      files = data.files || []; countEl.textContent = tr('gifs_files_count', '{n} file(s)', { n: files.length });
       renderFiles(files, true);
-    } catch (e) { if (!silent) toast('Could not list folder: ' + (e.message || e), 'error'); }
+    } catch (e) { if (seq === selSeq) { list.innerHTML = ''; if (!silent) toast('Could not list folder: ' + (e.message || e), 'error'); } }
   }
 
   // ---------------- files (right pane) ----------------
@@ -68,8 +123,19 @@ export function initGifLibrary() {
         e.preventDefault(); let pv = row.nextElementSibling;
         if (pv && pv.classList.contains('fm-preview')) { pv.remove(); return; }
         pv = document.createElement('div'); pv.className = 'fm-preview'; pv.style.cssText = 'padding: 0.4rem; background: rgba(0,0,0,0.3);';
-        pv.innerHTML = `<span class="text-muted">loading…</span>`; row.after(pv);
-        fetchBlobUrl(url).then(u => { pv.innerHTML = `<img src="${u}" alt="${esc(f.name)}" style="image-rendering: pixelated; max-width: 100%; height: 64px;">`; }).catch(err => { pv.innerHTML = `<span class="text-muted">preview failed: ${esc(err.message || err)}</span>`; });
+        row.after(pv);
+        const load = () => {
+          if (previewCtl) previewCtl.abort();
+          const ctl = new AbortController(); previewCtl = ctl;
+          pv.innerHTML = `<span class="text-muted">${tr('gifs_preview_loading', 'loading preview…')}${f.bytes ? ' (' + fmtBytes(f.bytes) + ')' : ''}</span>`;
+          fetch(url, { headers: headers(), signal: ctl.signal }).then(async r => { if (!r.ok) throw new Error('HTTP ' + r.status); const u = URL.createObjectURL(await r.blob()); pv.innerHTML = `<img src="${u}" alt="${esc(f.name)}" style="image-rendering: pixelated; max-width: 100%; height: 64px;">`; })
+            .catch(err => { if (err && err.name === 'AbortError') { pv.remove(); return; } pv.innerHTML = `<span class="text-muted">preview failed: ${esc(err.message || err)}</span>`; })
+            .finally(() => { if (previewCtl === ctl) previewCtl = null; });
+        };
+        if (f.bytes && f.bytes > PREVIEW_AUTO_MAX) {
+          pv.innerHTML = `<span class="text-muted">${tr('gifs_preview_large', 'Large file ({size}) — previewing it will take a while.', { size: fmtBytes(f.bytes) })} <a href="#" class="fm-preview-anyway">${tr('gifs_preview_anyway', 'Load preview anyway')}</a></span>`;
+          pv.querySelector('.fm-preview-anyway').onclick = (ev) => { ev.preventDefault(); load(); };
+        } else load();
       };
       row.querySelector('.fm-dl').onclick = (e) => { e.preventDefault(); downloadFile(url + '&download=1', f.name); };
       row.querySelector('.fm-rename').onclick = async (e) => {
@@ -126,7 +192,6 @@ export function initGifLibrary() {
       toast(`Uploaded ${saved} file(s)` + (skipped.length ? `, ${skipped.length} skipped` : ''), skipped.length && !saved ? 'error' : 'success');
     } catch (e) { progress.textContent = 'Upload failed: ' + (e.message || e); toast('Upload failed: ' + (e.message || e), 'error'); }
     finally {
-      try { await fetch('/api/gifs/reindex', { method: 'POST', headers: headers() }); } catch (_) {}
       busy = false; dropZone.style.opacity = ''; filesIn.value = ''; dirIn.value = '';
       if (groups.size === 1) selected = Array.from(groups.keys())[0];
       await loadLibrary();
