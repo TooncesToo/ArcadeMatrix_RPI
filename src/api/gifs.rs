@@ -110,7 +110,7 @@ async fn post_gifs_reindex(req: HttpRequest, data: web::Data<AppState>) -> impl 
     }
     // The RPi GIF engine scans folders live, so there is nothing to rebuild; the scan itself takes well under a
     // second here. To behave like the ESP32 (where the same button runs for minutes) the panel still shows an
-    // "Indexing library" notice for the duration, with a short minimum so it is actually visible.
+    // "Indexing library" notice for the duration, with a three-second minimum so it is actually visible.
     let started = std::time::Instant::now();
     REINDEX_RUNNING.store(true, std::sync::atomic::Ordering::Relaxed);
     data.config
@@ -118,7 +118,7 @@ async fn post_gifs_reindex(req: HttpRequest, data: web::Data<AppState>) -> impl 
             "Indexing GIF library...".to_string(),
             "#00ffff",
             1,
-            "rtl",
+            "none", // static and centred: a scrolling message is still off-screen when the sub-second scan ends
             0,
         )));
     let mut lib = gifs_scan_library();
@@ -137,7 +137,7 @@ async fn post_gifs_reindex(req: HttpRequest, data: web::Data<AppState>) -> impl 
         .map(|m| m.len())
         .unwrap_or(0);
     // keep the notice on screen for at least two seconds so the user sees the sign react
-    let min_visible = std::time::Duration::from_millis(2000);
+    let min_visible = std::time::Duration::from_millis(3000);
     if started.elapsed() < min_visible {
         actix_web::rt::time::sleep(min_visible - started.elapsed()).await;
     }
