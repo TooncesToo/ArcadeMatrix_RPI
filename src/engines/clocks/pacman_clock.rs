@@ -267,7 +267,15 @@ impl PacmanClock {
                             + text_h / 2
                             + ((self.anim_frame as f32 * 0.4 + i as f32).sin()
                                 * (self.radius as f32 / 3.0)) as i32;
-                        self.draw_ghost(matrix, gx, gy, self.radius - 1, gc, self.anim_frame);
+                        self.draw_ghost(
+                            matrix,
+                            gx,
+                            gy,
+                            self.radius - 1,
+                            gc,
+                            self.anim_frame,
+                            false,
+                        );
                     }
                 } else if self.pac_x < 2.0 * leg_len {
                     // Tier 2: Middle dots (Right -> Left)
@@ -330,7 +338,7 @@ impl PacmanClock {
                         let gy = dot_y
                             + ((self.anim_frame as f32 * 0.4 + i as f32).sin()
                                 * (self.radius as f32 / 3.0)) as i32;
-                        self.draw_ghost(matrix, gx, gy, self.radius - 1, gc, self.anim_frame);
+                        self.draw_ghost(matrix, gx, gy, self.radius - 1, gc, self.anim_frame, true);
                     }
                 } else {
                     let progress = self.pac_x - 2.0 * leg_len;
@@ -397,7 +405,15 @@ impl PacmanClock {
                             + text_h / 2
                             + ((self.anim_frame as f32 * 0.4 + i as f32).sin()
                                 * (self.radius as f32 / 3.0)) as i32;
-                        self.draw_ghost(matrix, gx, gy, self.radius - 1, gc, self.anim_frame);
+                        self.draw_ghost(
+                            matrix,
+                            gx,
+                            gy,
+                            self.radius - 1,
+                            gc,
+                            self.anim_frame,
+                            false,
+                        );
                     }
                 }
 
@@ -468,76 +484,120 @@ impl PacmanClock {
             let new_tx = (w as i32 - new_w) / 2;
             let new_ty = (h as i32 - new_h) / 2;
 
-            let current_pac_x = self.pac_x as i32;
-            let ghost_spacing = self.radius as f32 * 2.2;
-            let reveal_x = (current_pac_x - (self.radius * 3 + 4 * ghost_spacing as i32)).max(0);
+            // Mouth animation
+            let mouth_angle = ((self.anim_frame as f32 * 0.5).sin().abs() * 45.0) as i32;
+            let ghost_colors: [(u8, u8, u8); 4] =
+                [(255, 0, 0), (255, 184, 255), (0, 255, 255), (255, 184, 82)];
+            let first_ghost = self.radius * 3;
+            let ghost_gap = self.radius * 2;
+            let dot_color = (255, 183, 174);
+            // The energizer waits at the right edge. Reaching it is what ends the first leg: it is
+            // what frightens the ghosts, so they turn blue and everyone reverses there rather than
+            // after the whole line has left the panel. Matches the ESP32 face.
+            let energizer_x = w as i32 - (self.radius + 2);
 
-            // 1. New time runs all the way up to Pac-Man's mouth, so the clock is never missing
-            // from the strip the parade is crossing; only the sprites themselves cover it.
-            let reveal_x = current_pac_x.max(0);
-            if reveal_x > 0 {
-                Self::draw_clipped_text(
+            if self.pac_x <= energizer_x as f32 {
+                let current_pac_x = self.pac_x as i32;
+
+                // 1. New time runs all the way up to Pac-Man's mouth, so the clock is never missing
+                // from the strip the parade is crossing; only the sprites themselves cover it.
+                let reveal_x = current_pac_x.max(0);
+                if reveal_x > 0 {
+                    Self::draw_clipped_text(
+                        matrix,
+                        &self.new_time_str,
+                        font,
+                        active_scale as f32,
+                        new_tx,
+                        new_ty,
+                        (255, 255, 255),
+                        (0, 0, 0),
+                        0,
+                        reveal_x,
+                    );
+                }
+
+                // 2. Draw old time ahead of Pacman (current_pac_x..w)
+                if current_pac_x < w as i32 {
+                    Self::draw_clipped_text(
+                        matrix,
+                        &self.old_time_str,
+                        font,
+                        active_scale as f32,
+                        tx,
+                        ty,
+                        (255, 255, 255),
+                        (0, 0, 0),
+                        current_pac_x.max(0),
+                        w as i32,
+                    );
+                }
+
+                // 3. The energizer, flashing until he gets to it.
+                if (self.anim_frame / 6) % 2 == 0 {
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            matrix.set_pixel(
+                                energizer_x + dx,
+                                py + dy,
+                                dot_color.0,
+                                dot_color.1,
+                                dot_color.2,
+                            );
+                        }
+                    }
+                }
+
+                self.draw_pacman(matrix, current_pac_x, py, self.radius, mouth_angle, true);
+                for (i, &gc) in ghost_colors.iter().enumerate() {
+                    let gx = current_pac_x - first_ghost - (i as i32 * ghost_gap);
+                    let gy_offset = ((self.anim_frame as f32 * 0.2 + i as f32).sin()
+                        * (self.radius as f32 / 3.0)) as i32;
+                    self.draw_ghost(
+                        matrix,
+                        gx,
+                        py + gy_offset,
+                        self.radius - 1,
+                        gc,
+                        self.anim_frame,
+                        false,
+                    );
+                }
+            } else {
+                // The energizer has been eaten. The ghosts are blue and everyone has turned where
+                // they stood, so the line carries on from the positions it held and walks back off
+                // the left edge with Pac-Man behind it.
+                BaseRenderer::draw_text_at(
                     matrix,
-                    &self.new_time_str,
+                    &self.new_time_str.clone(),
                     font,
                     active_scale as f32,
                     new_tx,
                     new_ty,
                     (255, 255, 255),
                     (0, 0, 0),
-                    0,
-                    reveal_x,
                 );
+
+                let back = energizer_x - (self.pac_x as i32 - energizer_x);
+                for (i, &gc) in ghost_colors.iter().enumerate() {
+                    let gx = back - first_ghost - (i as i32 * ghost_gap);
+                    let gy_offset = ((self.anim_frame as f32 * 0.2 + i as f32).sin()
+                        * (self.radius as f32 / 3.0)) as i32;
+                    self.draw_ghost(
+                        matrix,
+                        gx,
+                        py + gy_offset,
+                        self.radius - 1,
+                        gc,
+                        self.anim_frame,
+                        true,
+                    );
+                }
+                self.draw_pacman(matrix, back, py, self.radius, mouth_angle, false);
             }
 
-            // 2. Draw old time ahead of Pacman (current_pac_x..w)
-            if current_pac_x < w as i32 {
-                Self::draw_clipped_text(
-                    matrix,
-                    &self.old_time_str,
-                    font,
-                    active_scale as f32,
-                    tx,
-                    ty,
-                    (255, 255, 255),
-                    (0, 0, 0),
-                    current_pac_x.max(0),
-                    w as i32,
-                );
-            }
-
-            // Mouth animation
-            let mouth_angle = ((self.anim_frame as f32 * 0.5).sin().abs() * 45.0) as i32;
-
-            // Draw Pac-Man
-            self.draw_pacman(
-                matrix,
-                self.pac_x as i32,
-                py,
-                self.radius,
-                mouth_angle,
-                true,
-            );
-
-            // Draw ghosts trailing behind
-            let ghost_colors: [(u8, u8, u8); 4] =
-                [(255, 0, 0), (255, 184, 255), (0, 255, 255), (255, 184, 82)];
-            for (i, &gc) in ghost_colors.iter().enumerate() {
-                let gx = self.pac_x as i32 - (self.radius * 3) - (i as i32 * self.radius * 2);
-                let gy_offset = ((self.anim_frame as f32 * 0.2 + i as f32).sin()
-                    * (self.radius as f32 / 3.0)) as i32;
-                self.draw_ghost(
-                    matrix,
-                    gx,
-                    py + gy_offset,
-                    self.radius - 1,
-                    gc,
-                    self.anim_frame,
-                );
-            }
-
-            // Check if transition is done
-            if self.pac_x >= w + self.radius as f32 * 3.0 {
+            // Done once Pac-Man, the rightmost of them on the way back, has cleared the left edge.
+            if self.pac_x >= 2.0 * energizer_x as f32 + self.radius as f32 * 2.0 {
                 self.transitioning = false;
                 self.last_minute = now_min;
                 self.last_hour = now_h;
@@ -672,6 +732,9 @@ impl PacmanClock {
         }
     }
 
+    /// `frightened` draws the blue ghost the energizer turns them into: blue body, pale eyes and
+    /// a wavy mouth instead of pupils, matching the ESP32 face.
+    #[allow(clippy::too_many_arguments)]
     fn draw_ghost(
         &self,
         matrix: &mut dyn MatrixBackend,
@@ -680,7 +743,9 @@ impl PacmanClock {
         r: i32,
         color: (u8, u8, u8),
         tick: u32,
+        frightened: bool,
     ) {
+        let color = if frightened { (33, 33, 255) } else { color };
         // Upper semicircle body
         for dy in -r..=0i32 {
             for dx in -r..=r {
@@ -704,11 +769,21 @@ impl PacmanClock {
                 matrix.set_pixel(tx, bottom_y + 1, 0, 0, 0);
             }
         }
-        // White eyes
-        matrix.set_pixel(cx - r / 2, cy - 1, 255, 255, 255);
-        matrix.set_pixel(cx + r / 2, cy - 1, 255, 255, 255);
-        // Blue pupils
-        matrix.set_pixel(cx - r / 2 + 1, cy - 1, 0, 0, 200);
-        matrix.set_pixel(cx + r / 2 + 1, cy - 1, 0, 0, 200);
+        if frightened {
+            // Pale eyes with no pupils, and a wavy mouth across the body.
+            matrix.set_pixel(cx - r / 2, cy - 1, 255, 255, 255);
+            matrix.set_pixel(cx + r / 2, cy - 1, 255, 255, 255);
+            for dx in -r..=r {
+                let wobble = if (dx.rem_euclid(4)) < 2 { 0 } else { 1 };
+                matrix.set_pixel(cx + dx, cy + r / 2 + wobble, 255, 255, 255);
+            }
+        } else {
+            // White eyes
+            matrix.set_pixel(cx - r / 2, cy - 1, 255, 255, 255);
+            matrix.set_pixel(cx + r / 2, cy - 1, 255, 255, 255);
+            // Blue pupils
+            matrix.set_pixel(cx - r / 2 + 1, cy - 1, 0, 0, 200);
+            matrix.set_pixel(cx + r / 2 + 1, cy - 1, 0, 0, 200);
+        }
     }
 }
