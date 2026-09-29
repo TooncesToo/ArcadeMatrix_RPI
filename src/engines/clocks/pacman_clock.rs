@@ -610,7 +610,11 @@ impl PacmanClock {
             return;
         }
         let (pixels_by_char, _, _) = font.get_pixel_map(text, size);
-        let offset = (size as i32).max(1);
+        // Resolve the outline the same way BaseRenderer::draw_text_at does. This helper paints its
+        // own pixels so it saw none of that, which left the digits glowing on the legs drawn
+        // through draw_text_at and plain on the legs drawn through here.
+        let (secondary, primary, offset) =
+            BaseRenderer::glow_for(primary, secondary, (size as i32).max(1));
 
         for char_pixels in &pixels_by_char {
             for &(gx, gy) in char_pixels {

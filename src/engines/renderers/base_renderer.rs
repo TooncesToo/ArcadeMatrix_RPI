@@ -543,8 +543,10 @@ impl BaseRenderer {
     }
 
     /// Returns (halo, core, halo_offset). `halo_offset` is 1 for a glow so the ring stays tight,
-    /// and the face's own `size`-wide ring when no glow is configured.
-    fn glow_for(
+    /// and the face's own `size`-wide ring when no glow is configured. Public so a face that draws
+    /// its own text - the Pac-Man parade clips its digits at Pac-Man's mouth - resolves the outline
+    /// exactly as draw_text_at does, rather than ending up with the glow on only some of them.
+    pub fn glow_for(
         primary: (u8, u8, u8),
         secondary: (u8, u8, u8),
         size_offset: i32,
