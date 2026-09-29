@@ -278,6 +278,13 @@ impl ClockEngine {
         } else {
             config.get_int("clock_offset_y", 0)
         };
+
+        // The parade honours clock_speed and the offsets, as it does on the ESP32.
+        let speed_pct = config.get_int("clock_speed", 100) as i32;
+        self.pacman
+            .configure(speed_pct, self.time_offset_x, self.time_offset_y);
+        self.ms_pacman
+            .configure(speed_pct, self.time_offset_x, self.time_offset_y);
     }
 }
 
@@ -651,6 +658,19 @@ fn register_clock_engine() -> EngineDescriptor {
                     default_value: "2",
                     min_val: Some("1"),
                     max_val: Some("10"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "clock_speed",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "Animation Speed",
+                    description:
+                        "Animation speed in percent (Tetris block fall, Pac-Man sweep); lower is slower",
+                    default_value: "100",
+                    min_val: Some("25"),
+                    max_val: Some("300"),
+                    step: Some("25"),
                     validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
                     ..Default::default()
                 },

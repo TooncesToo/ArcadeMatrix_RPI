@@ -8,7 +8,6 @@ pub struct PacmanClock {
     ms_variant: bool,
     pac_x: f32,
     direction: f32,
-    anim_frame: u32,
     last_minute: i32,
     last_hour: i32,
     transitioning: bool,
@@ -16,6 +15,14 @@ pub struct PacmanClock {
     new_time_str: String,
     speed: f32,
     radius: i32,
+    /// millis() at the start of the current parade. The ESP32 clocks the parade on the wall clock
+    /// so it runs at the same speed whatever the panel manages per second; stepping pac_x once per
+    /// frame made it run at the frame rate instead.
+    trans_start_ms: u128,
+    /// `clock_speed` as a percentage, the same knob the ESP32 exposes.
+    speed_pct: i32,
+    offset_x: i32,
+    offset_y: i32,
 }
 
 impl PacmanClock {
@@ -31,13 +38,16 @@ impl PacmanClock {
             ms_variant: false,
             pac_x: 0.0,
             direction: 1.0,
-            anim_frame: 0,
             last_minute: -1,
             last_hour: -1,
             transitioning: false,
             old_time_str: String::new(),
             new_time_str: String::new(),
             speed: 2.0,
+            trans_start_ms: 0,
+            speed_pct: 100,
+            offset_x: 0,
+            offset_y: 0,
             radius: 4,
         }
     }
@@ -57,7 +67,6 @@ impl PacmanClock {
     ) {
         let w = matrix.width() as f32;
         let h = matrix.height() as f32;
-        self.anim_frame += 1;
 
         // Her digits carry her own colour when nothing else is configured, as on the ESP32. The
         // clock engine republishes the instance's own setting before every render, so this only
@@ -78,7 +87,8 @@ impl PacmanClock {
             self.transitioning = true;
             self.old_time_str = self.new_time_str.clone();
             self.new_time_str = time_str.to_string();
-            self.pac_x = -(self.radius as f32 * 3.0);
+            self.pac_x = 0.0;
+            self.trans_start_ms = Self::now_ms();
         } else if !self.transitioning {
             self.new_time_str = time_str.to_string();
         }
@@ -124,9 +134,12 @@ impl PacmanClock {
             h as i32
         };
         self.radius = ((lane - 1) / 2).max(3);
-        self.speed = (0.8 * w / 64.0).max(0.6);
+        // Pixels per second off the ghost's own width, scaled by clock_speed, exactly as the
+        // ESP32 sizes it - not pixels per frame off the panel width.
+        let ghost_px = GHOST_BODY_COLS * Self::sprite_scale(self.radius);
+        self.speed = 2.0 * ghost_px as f32 * (self.speed_pct as f32 / 100.0);
 
-        let py = (h / 2.0) as i32;
+        let py = (h / 2.0) as i32 + self.offset_y;
 
         if is_tate {
             // Stacked Portrait Layout (HH on top, MM on bottom)
@@ -149,15 +162,16 @@ impl PacmanClock {
                 ("00".to_string(), "00".to_string())
             };
 
-            let tx = (w as i32 - text_w) / 2;
+            let tx = (w as i32 - text_w) / 2 + self.offset_x;
             let ty_h = (h as i32 / 4) - (text_h / 2);
             let ty_m = (3 * h as i32 / 4) - (text_h / 2);
             let dot_y = (h as i32) / 2;
             let dot_x = [w as i32 / 4, w as i32 / 2, 3 * w as i32 / 4];
             let dot_color = (255, 183, 174);
 
+            let pac_sprite_w = PAC_FRAME_CLOSED_COLS * Self::sprite_scale(self.radius);
             let ghost_spacing = self.radius as f32 * 2.2;
-            let leg_len = w + self.radius as f32 * 4.0 + 4.0 * ghost_spacing;
+            let leg_len = w + pac_sprite_w as f32 * 2.0 + 4.0 * ghost_spacing;
             let max_path = 3.0 * leg_len;
 
             if !self.transitioning {
@@ -195,13 +209,14 @@ impl PacmanClock {
                     }
                 }
             } else {
-                self.pac_x += self.speed;
-                let mouth_angle = ((self.anim_frame as f32 * 0.5).sin().abs() * 45.0) as i32;
+                self.pac_x = ((Self::now_ms().saturating_sub(self.trans_start_ms)) as f32 / 1000.0)
+                    * self.speed;
+                let mouth_angle = Self::chomp_angle();
                 let ghost_colors: [(u8, u8, u8); 4] =
                     [(255, 0, 0), (255, 184, 255), (0, 255, 255), (255, 184, 82)];
 
                 if self.pac_x < leg_len {
-                    let current_pac_x = (-self.radius as f32 * 2.0 + self.pac_x) as i32;
+                    let current_pac_x = (self.pac_x - pac_sprite_w as f32) as i32;
                     let reveal_x =
                         (current_pac_x - (self.radius * 3 + 4 * ghost_spacing as i32)).max(0);
 
@@ -275,11 +290,8 @@ impl PacmanClock {
                         let gx = current_pac_x as i32
                             - (self.radius * 2 + 3)
                             - (i as i32 * ghost_spacing as i32);
-                        let gy = ty_h
-                            + text_h / 2
-                            + ((self.anim_frame as f32 * 0.4 + i as f32).sin()
-                                * (self.radius as f32 / 3.0)) as i32;
-                        self.draw_ghost(matrix, gx, gy, self.radius, gc, self.anim_frame, false);
+                        let gy = ty_h + text_h / 2;
+                        self.draw_ghost(matrix, gx, gy, self.radius, gc, Self::skirt_tick(), false);
                     }
                 } else if self.pac_x < 2.0 * leg_len {
                     // Tier 2: Middle dots (Right -> Left)
@@ -339,14 +351,12 @@ impl PacmanClock {
                         let gx = current_pac_x as i32
                             + (self.radius * 2 + 3)
                             + (i as i32 * ghost_spacing as i32);
-                        let gy = dot_y
-                            + ((self.anim_frame as f32 * 0.4 + i as f32).sin()
-                                * (self.radius as f32 / 3.0)) as i32;
-                        self.draw_ghost(matrix, gx, gy, self.radius, gc, self.anim_frame, true);
+                        let gy = dot_y;
+                        self.draw_ghost(matrix, gx, gy, self.radius, gc, Self::skirt_tick(), true);
                     }
                 } else {
                     let progress = self.pac_x - 2.0 * leg_len;
-                    let current_pac_x = (-self.radius as f32 * 2.0 + progress) as i32;
+                    let current_pac_x = (progress - pac_sprite_w as f32) as i32;
                     let reveal_x =
                         (current_pac_x - (self.radius * 3 + 4 * ghost_spacing as i32)).max(0);
 
@@ -407,11 +417,8 @@ impl PacmanClock {
                         let gx = current_pac_x as i32
                             - (self.radius * 2 + 3)
                             - (i as i32 * ghost_spacing as i32);
-                        let gy = ty_m
-                            + text_h / 2
-                            + ((self.anim_frame as f32 * 0.4 + i as f32).sin()
-                                * (self.radius as f32 / 3.0)) as i32;
-                        self.draw_ghost(matrix, gx, gy, self.radius, gc, self.anim_frame, false);
+                        let gy = ty_m + text_h / 2;
+                        self.draw_ghost(matrix, gx, gy, self.radius, gc, Self::skirt_tick(), false);
                     }
                 }
 
@@ -433,8 +440,8 @@ impl PacmanClock {
                     text_h = text_h.max(py + 1);
                 }
             }
-            let tx = (w as i32 - text_w) / 2;
-            let ty = (h as i32 - text_h) / 2;
+            let tx = (w as i32 - text_w) / 2 + self.offset_x;
+            let ty = (h as i32 - text_h) / 2 + self.offset_y;
 
             // The time, with the colon blinking, which is all the ESP32 face shows when nothing is
             // parading. The five pellets that used to drift here were a Pi-only flourish: their x
@@ -455,7 +462,8 @@ impl PacmanClock {
             );
         } else {
             // Transition animation
-            self.pac_x += self.speed;
+            self.pac_x =
+                ((Self::now_ms().saturating_sub(self.trans_start_ms)) as f32 / 1000.0) * self.speed;
 
             let (pixels, _, _) = font.get_pixel_map(&self.old_time_str, active_scale as f32);
             let mut text_w = 0;
@@ -466,8 +474,8 @@ impl PacmanClock {
                     text_h = text_h.max(py + 1);
                 }
             }
-            let tx = (w as i32 - text_w) / 2;
-            let ty = (h as i32 - text_h) / 2;
+            let tx = (w as i32 - text_w) / 2 + self.offset_x;
+            let ty = (h as i32 - text_h) / 2 + self.offset_y;
 
             let (new_pixels, _, _) = font.get_pixel_map(&self.new_time_str, active_scale as f32);
             let mut new_w = 0;
@@ -478,11 +486,11 @@ impl PacmanClock {
                     new_h = new_h.max(py + 1);
                 }
             }
-            let new_tx = (w as i32 - new_w) / 2;
-            let new_ty = (h as i32 - new_h) / 2;
+            let new_tx = (w as i32 - new_w) / 2 + self.offset_x;
+            let new_ty = (h as i32 - new_h) / 2 + self.offset_y;
 
             // Mouth animation
-            let mouth_angle = ((self.anim_frame as f32 * 0.5).sin().abs() * 45.0) as i32;
+            let mouth_angle = Self::chomp_angle();
             let ghost_colors: [(u8, u8, u8); 4] =
                 [(255, 0, 0), (255, 184, 255), (0, 255, 255), (255, 184, 82)];
             let s = Self::sprite_scale(self.radius);
@@ -496,8 +504,11 @@ impl PacmanClock {
             // after the whole line has left the panel. Matches the ESP32 face.
             let energizer_x = w as i32 - 4 * s;
 
-            if self.pac_x <= energizer_x as f32 {
-                let current_pac_x = self.pac_x as i32;
+            // pac_x is how far the parade has travelled. Leg 0 runs until his mouth reaches the
+            // energizer; leg 1 walks the same distance back off the left edge.
+            let leg_to_dot = (energizer_x + pac_w / 2) as f32;
+            if self.pac_x <= leg_to_dot {
+                let current_pac_x = (self.pac_x - pac_w as f32 / 2.0) as i32;
 
                 // 1. New time runs all the way up to Pac-Man's mouth, so the clock is never missing
                 // from the strip the parade is crossing; only the sprites themselves cover it.
@@ -536,7 +547,7 @@ impl PacmanClock {
                 }
 
                 // 3. The energizer, flashing until he gets to it.
-                if (self.anim_frame / 3) % 2 == 0 {
+                if (Self::now_ms() / 180) % 2 == 0 {
                     let er = (2 * s).max(2);
                     for dy in 0..er {
                         for dx in 0..er {
@@ -552,7 +563,10 @@ impl PacmanClock {
                 }
 
                 // A few crumbs at the mouth, so he still reads as eating the old time.
-                let seed = (self.anim_frame ^ (current_pac_x as u32)) as i32;
+                // Kept to a byte, as the ESP32's uint8_t seed is: the full millisecond count
+                // overflows once it is multiplied below.
+                let seed =
+                    ((((Self::now_ms() / 40) as u32) ^ (current_pac_x as u32)) & 0xFF) as i32;
                 for pcrumb in 0..4 {
                     let cut_x = current_pac_x + pac_w / 2;
                     let ox = (seed + pcrumb * 7).rem_euclid(3 * s);
@@ -571,7 +585,7 @@ impl PacmanClock {
                 self.draw_pacman(matrix, current_pac_x, py, self.radius, mouth_angle, true);
                 for (i, &gc) in ghost_colors.iter().enumerate() {
                     let gx = current_pac_x - first_ghost - (i as i32 * ghost_gap);
-                    self.draw_ghost(matrix, gx, py, self.radius, gc, self.anim_frame, false);
+                    self.draw_ghost(matrix, gx, py, self.radius, gc, Self::skirt_tick(), false);
                 }
             } else {
                 // The energizer has been eaten. The ghosts are blue and everyone has turned where
@@ -588,16 +602,16 @@ impl PacmanClock {
                     (0, 0, 0),
                 );
 
-                let back = energizer_x - (self.pac_x as i32 - energizer_x);
+                let back = energizer_x - (self.pac_x - leg_to_dot) as i32;
                 for (i, &gc) in ghost_colors.iter().enumerate() {
                     let gx = back - first_ghost - (i as i32 * ghost_gap);
-                    self.draw_ghost(matrix, gx, py, self.radius, gc, self.anim_frame, true);
+                    self.draw_ghost(matrix, gx, py, self.radius, gc, Self::skirt_tick(), true);
                 }
                 self.draw_pacman(matrix, back, py, self.radius, mouth_angle, false);
             }
 
             // Done once Pac-Man, the rightmost of them on the way back, has cleared the left edge.
-            if self.pac_x >= 2.0 * energizer_x as f32 + self.radius as f32 * 2.0 {
+            if self.pac_x >= 2.0 * leg_to_dot {
                 self.transitioning = false;
                 self.last_minute = now_min;
                 self.last_hour = now_h;
@@ -678,6 +692,33 @@ impl PacmanClock {
                 }
             }
         }
+    }
+
+    /// Closed - half - open - half on a 200 ms cycle, the ESP32's chompSeq. Returned as the mouth
+    /// angle draw_pacman maps back onto the three frames.
+    fn chomp_angle() -> i32 {
+        const SEQ: [i32; 4] = [0, 20, 40, 20];
+        SEQ[((Self::now_ms() / 50) & 3) as usize]
+    }
+
+    /// The skirt swaps every 160 ms, as on the ESP32.
+    fn skirt_tick() -> u32 {
+        (Self::now_ms() / 160) as u32
+    }
+
+    /// Milliseconds since the epoch, the Pi's stand-in for the ESP32's millis().
+    fn now_ms() -> u128 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    }
+
+    /// Instance settings the parade honours, applied when the config changes.
+    pub fn configure(&mut self, speed_pct: i32, offset_x: i32, offset_y: i32) {
+        self.speed_pct = speed_pct.clamp(25, 300);
+        self.offset_x = offset_x;
+        self.offset_y = offset_y;
     }
 
     /// The colon is on for half a second at a time, as on the ESP32, and is read from the clock
