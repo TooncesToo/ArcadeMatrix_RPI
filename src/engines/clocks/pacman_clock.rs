@@ -270,15 +270,7 @@ impl PacmanClock {
                             + text_h / 2
                             + ((self.anim_frame as f32 * 0.4 + i as f32).sin()
                                 * (self.radius as f32 / 3.0)) as i32;
-                        self.draw_ghost(
-                            matrix,
-                            gx,
-                            gy,
-                            self.radius - 1,
-                            gc,
-                            self.anim_frame,
-                            false,
-                        );
+                        self.draw_ghost(matrix, gx, gy, self.radius, gc, self.anim_frame, false);
                     }
                 } else if self.pac_x < 2.0 * leg_len {
                     // Tier 2: Middle dots (Right -> Left)
@@ -341,7 +333,7 @@ impl PacmanClock {
                         let gy = dot_y
                             + ((self.anim_frame as f32 * 0.4 + i as f32).sin()
                                 * (self.radius as f32 / 3.0)) as i32;
-                        self.draw_ghost(matrix, gx, gy, self.radius - 1, gc, self.anim_frame, true);
+                        self.draw_ghost(matrix, gx, gy, self.radius, gc, self.anim_frame, true);
                     }
                 } else {
                     let progress = self.pac_x - 2.0 * leg_len;
@@ -408,15 +400,7 @@ impl PacmanClock {
                             + text_h / 2
                             + ((self.anim_frame as f32 * 0.4 + i as f32).sin()
                                 * (self.radius as f32 / 3.0)) as i32;
-                        self.draw_ghost(
-                            matrix,
-                            gx,
-                            gy,
-                            self.radius - 1,
-                            gc,
-                            self.anim_frame,
-                            false,
-                        );
+                        self.draw_ghost(matrix, gx, gy, self.radius, gc, self.anim_frame, false);
                     }
                 }
 
@@ -575,7 +559,7 @@ impl PacmanClock {
                 self.draw_pacman(matrix, current_pac_x, py, self.radius, mouth_angle, true);
                 for (i, &gc) in ghost_colors.iter().enumerate() {
                     let gx = current_pac_x - first_ghost - (i as i32 * ghost_gap);
-                    self.draw_ghost(matrix, gx, py, self.radius - 1, gc, self.anim_frame, false);
+                    self.draw_ghost(matrix, gx, py, self.radius, gc, self.anim_frame, false);
                 }
             } else {
                 // The energizer has been eaten. The ghosts are blue and everyone has turned where
@@ -595,7 +579,7 @@ impl PacmanClock {
                 let back = energizer_x - (self.pac_x as i32 - energizer_x);
                 for (i, &gc) in ghost_colors.iter().enumerate() {
                     let gx = back - first_ghost - (i as i32 * ghost_gap);
-                    self.draw_ghost(matrix, gx, py, self.radius - 1, gc, self.anim_frame, true);
+                    self.draw_ghost(matrix, gx, py, self.radius, gc, self.anim_frame, true);
                 }
                 self.draw_pacman(matrix, back, py, self.radius, mouth_angle, false);
             }
