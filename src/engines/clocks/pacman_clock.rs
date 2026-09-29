@@ -218,6 +218,7 @@ impl PacmanClock {
                             (0, 0, 0),
                             0,
                             reveal_x,
+                            true,
                         );
                     }
 
@@ -234,6 +235,7 @@ impl PacmanClock {
                             (0, 0, 0),
                             current_pac_x.max(0),
                             w as i32,
+                            true,
                         );
                     }
 
@@ -372,6 +374,7 @@ impl PacmanClock {
                             (0, 0, 0),
                             0,
                             reveal_x,
+                            true,
                         );
                     }
 
@@ -388,6 +391,7 @@ impl PacmanClock {
                             (0, 0, 0),
                             current_pac_x.max(0),
                             w as i32,
+                            true,
                         );
                     }
 
@@ -432,7 +436,11 @@ impl PacmanClock {
             let tx = (w as i32 - text_w) / 2;
             let ty = (h as i32 - text_h) / 2;
 
-            BaseRenderer::draw_text_at(
+            // The time, with the colon blinking, which is all the ESP32 face shows when nothing is
+            // parading. The five pellets that used to drift here were a Pi-only flourish: their x
+            // and y ran off sines of different frequencies, so the one visible dot traced a figure
+            // eight across the panel.
+            Self::draw_clipped_text(
                 matrix,
                 &self.new_time_str.clone(),
                 font,
@@ -441,15 +449,10 @@ impl PacmanClock {
                 ty,
                 (255, 255, 255),
                 (0, 0, 0),
+                0,
+                w as i32,
+                Self::colon_on(),
             );
-
-            // Scattered pellets
-            for i in 0..5 {
-                let px = ((self.anim_frame as f32 * 0.1 + i as f32).sin() * (w / 2.0)) + (w / 2.0);
-                let py = ((self.anim_frame as f32 * 0.15 + (i * 2) as f32).cos() * (h / 2.0))
-                    + (h / 2.0);
-                matrix.set_pixel(px as i32, py as i32, 255, 183, 174);
-            }
         } else {
             // Transition animation
             self.pac_x += self.speed;
@@ -511,6 +514,7 @@ impl PacmanClock {
                         (0, 0, 0),
                         0,
                         reveal_x,
+                        true,
                     );
                 }
 
@@ -527,6 +531,7 @@ impl PacmanClock {
                         (0, 0, 0),
                         current_pac_x.max(0),
                         w as i32,
+                        true,
                     );
                 }
 
@@ -612,6 +617,7 @@ impl PacmanClock {
         secondary: (u8, u8, u8),
         clip_min_x: i32,
         clip_max_x: i32,
+        colon_on: bool,
     ) {
         if clip_min_x >= clip_max_x {
             return;
@@ -623,7 +629,10 @@ impl PacmanClock {
         let (secondary, primary, offset) =
             BaseRenderer::glow_for(primary, secondary, (size as i32).max(1));
 
-        for char_pixels in &pixels_by_char {
+        for (char_pixels, ch) in pixels_by_char.iter().zip(text.chars()) {
+            if ch == ':' && !colon_on {
+                continue;
+            }
             for &(gx, gy) in char_pixels {
                 let px = x + gx;
                 let py = y + gy;
@@ -657,7 +666,10 @@ impl PacmanClock {
             }
         }
 
-        for char_pixels in &pixels_by_char {
+        for (char_pixels, ch) in pixels_by_char.iter().zip(text.chars()) {
+            if ch == ':' && !colon_on {
+                continue;
+            }
             for &(gx, gy) in char_pixels {
                 let px = x + gx;
                 let py = y + gy;
@@ -666,6 +678,15 @@ impl PacmanClock {
                 }
             }
         }
+    }
+
+    /// The colon is on for half a second at a time, as on the ESP32, and is read from the clock
+    /// rather than the frame counter so it keeps time whatever the panel's frame rate.
+    fn colon_on() -> bool {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| (d.as_millis() / 500) % 2 == 0)
+            .unwrap_or(true)
     }
 
     /// One integer scale for the whole parade, the way the ESP32 face sizes it: the 14 px ghost
