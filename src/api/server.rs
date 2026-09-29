@@ -169,6 +169,15 @@ async fn post_system(
     if let Some(v) = body.get("transition_duration_ms").and_then(|v| v.as_u64()) {
         s.matrix.transition_duration_ms = v as u32;
     }
+    if let Some(v) = body.get("slot_transition").and_then(|v| v.as_str()) {
+        s.matrix.slot_transition = v.to_string();
+    }
+    if let Some(v) = body
+        .get("slot_transition_duration_ms")
+        .and_then(|v| v.as_u64())
+    {
+        s.matrix.slot_transition_duration_ms = v as u32;
+    }
     // Hardware & MQTT-affecting settings only take effect after a restart of the
     // render/network loops, so flag it when physical matrix params, MQTT broker, or Wi-Fi state change.
     let prev_matrix_cfg: Option<crate::core::config::MatrixConfig> =
