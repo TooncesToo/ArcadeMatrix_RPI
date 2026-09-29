@@ -23,6 +23,9 @@ pub struct PacmanClock {
     speed_pct: i32,
     offset_x: i32,
     offset_y: i32,
+    /// `clock_color_1`. The colon is not configurable: the ESP32 face fixes it at a blue that
+    /// reads against the digits whatever colour they are.
+    digit_color: (u8, u8, u8),
 }
 
 impl PacmanClock {
@@ -48,6 +51,7 @@ impl PacmanClock {
             speed_pct: 100,
             offset_x: 0,
             offset_y: 0,
+            digit_color: (255, 255, 255),
             radius: 4,
         }
     }
@@ -182,7 +186,7 @@ impl PacmanClock {
                     active_scale as f32,
                     tx,
                     ty_h,
-                    (255, 255, 255),
+                    self.digit_color,
                     (0, 0, 0),
                 );
                 BaseRenderer::draw_text_at(
@@ -192,7 +196,7 @@ impl PacmanClock {
                     active_scale as f32,
                     tx,
                     ty_m,
-                    (255, 255, 255),
+                    self.digit_color,
                     (0, 0, 0),
                 );
                 for &dx in &dot_x {
@@ -229,11 +233,12 @@ impl PacmanClock {
                             active_scale as f32,
                             tx,
                             ty_h,
-                            (255, 255, 255),
+                            self.digit_color,
                             (0, 0, 0),
                             0,
                             reveal_x,
                             true,
+                            Self::COLON_COLOR,
                         );
                     }
 
@@ -246,11 +251,12 @@ impl PacmanClock {
                             active_scale as f32,
                             tx,
                             ty_h,
-                            (255, 255, 255),
+                            self.digit_color,
                             (0, 0, 0),
                             current_pac_x.max(0),
                             w as i32,
                             true,
+                            Self::COLON_COLOR,
                         );
                     }
 
@@ -274,7 +280,7 @@ impl PacmanClock {
                         active_scale as f32,
                         tx,
                         ty_m,
-                        (255, 255, 255),
+                        self.digit_color,
                         (0, 0, 0),
                     );
 
@@ -305,7 +311,7 @@ impl PacmanClock {
                         active_scale as f32,
                         tx,
                         ty_h,
-                        (255, 255, 255),
+                        self.digit_color,
                         (0, 0, 0),
                     );
 
@@ -335,7 +341,7 @@ impl PacmanClock {
                         active_scale as f32,
                         tx,
                         ty_m,
-                        (255, 255, 255),
+                        self.digit_color,
                         (0, 0, 0),
                     );
 
@@ -367,7 +373,7 @@ impl PacmanClock {
                         active_scale as f32,
                         tx,
                         ty_h,
-                        (255, 255, 255),
+                        self.digit_color,
                         (0, 0, 0),
                     );
 
@@ -380,11 +386,12 @@ impl PacmanClock {
                             active_scale as f32,
                             tx,
                             ty_m,
-                            (255, 255, 255),
+                            self.digit_color,
                             (0, 0, 0),
                             0,
                             reveal_x,
                             true,
+                            Self::COLON_COLOR,
                         );
                     }
 
@@ -397,11 +404,12 @@ impl PacmanClock {
                             active_scale as f32,
                             tx,
                             ty_m,
-                            (255, 255, 255),
+                            self.digit_color,
                             (0, 0, 0),
                             current_pac_x.max(0),
                             w as i32,
                             true,
+                            Self::COLON_COLOR,
                         );
                     }
 
@@ -454,11 +462,12 @@ impl PacmanClock {
                 active_scale as f32,
                 tx,
                 ty,
-                (255, 255, 255),
+                self.digit_color,
                 (0, 0, 0),
                 0,
                 w as i32,
                 Self::colon_on(),
+                Self::COLON_COLOR,
             );
         } else {
             // Transition animation
@@ -521,11 +530,12 @@ impl PacmanClock {
                         active_scale as f32,
                         new_tx,
                         new_ty,
-                        (255, 255, 255),
+                        self.digit_color,
                         (0, 0, 0),
                         0,
                         reveal_x,
                         true,
+                        Self::COLON_COLOR,
                     );
                 }
 
@@ -538,11 +548,12 @@ impl PacmanClock {
                         active_scale as f32,
                         tx,
                         ty,
-                        (255, 255, 255),
+                        self.digit_color,
                         (0, 0, 0),
                         current_pac_x.max(0),
                         w as i32,
                         true,
+                        Self::COLON_COLOR,
                     );
                 }
 
@@ -598,7 +609,7 @@ impl PacmanClock {
                     active_scale as f32,
                     new_tx,
                     new_ty,
-                    (255, 255, 255),
+                    self.digit_color,
                     (0, 0, 0),
                 );
 
@@ -632,6 +643,7 @@ impl PacmanClock {
         clip_min_x: i32,
         clip_max_x: i32,
         colon_on: bool,
+        colon_color: (u8, u8, u8),
     ) {
         if clip_min_x >= clip_max_x {
             return;
@@ -684,11 +696,12 @@ impl PacmanClock {
             if ch == ':' && !colon_on {
                 continue;
             }
+            let ink = if ch == ':' { colon_color } else { primary };
             for &(gx, gy) in char_pixels {
                 let px = x + gx;
                 let py = y + gy;
                 if px >= clip_min_x && px < clip_max_x {
-                    matrix.set_pixel(px, py, primary.0, primary.1, primary.2);
+                    matrix.set_pixel(px, py, ink.0, ink.1, ink.2);
                 }
             }
         }
@@ -715,11 +728,25 @@ impl PacmanClock {
     }
 
     /// Instance settings the parade honours, applied when the config changes.
-    pub fn configure(&mut self, speed_pct: i32, offset_x: i32, offset_y: i32) {
+    pub fn configure(
+        &mut self,
+        speed_pct: i32,
+        offset_x: i32,
+        offset_y: i32,
+        digit_color: (u8, u8, u8),
+    ) {
         self.speed_pct = speed_pct.clamp(25, 300);
         self.offset_x = offset_x;
         self.offset_y = offset_y;
+        self.digit_color = if digit_color == (0, 0, 0) {
+            (255, 255, 255)
+        } else {
+            digit_color
+        };
     }
+
+    /// The colon the ESP32 face draws, fixed rather than taken from the instance colours.
+    const COLON_COLOR: (u8, u8, u8) = (60, 100, 255);
 
     /// The colon is on for half a second at a time, as on the ESP32, and is read from the clock
     /// rather than the frame counter so it keeps time whatever the panel's frame rate.

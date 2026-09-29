@@ -281,10 +281,19 @@ impl ClockEngine {
 
         // The parade honours clock_speed and the offsets, as it does on the ESP32.
         let speed_pct = config.get_int("clock_speed", 100) as i32;
-        self.pacman
-            .configure(speed_pct, self.time_offset_x, self.time_offset_y);
-        self.ms_pacman
-            .configure(speed_pct, self.time_offset_x, self.time_offset_y);
+        let digit_color = parse_hex_color(&self.clock_color_1).unwrap_or((255, 255, 255));
+        self.pacman.configure(
+            speed_pct,
+            self.time_offset_x,
+            self.time_offset_y,
+            digit_color,
+        );
+        self.ms_pacman.configure(
+            speed_pct,
+            self.time_offset_x,
+            self.time_offset_y,
+            digit_color,
+        );
         self.tetris.configure(speed_pct);
         self.tetris_gb.configure(speed_pct);
     }
