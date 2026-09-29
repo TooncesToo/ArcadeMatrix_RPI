@@ -1,6 +1,6 @@
 //! Mario clock, adapted from the 64x64 "Clockwise" clockface cw-cf-0x01.
 //!
-//! The square scene keeps its place in the middle of the panel and the ground, hills, bushes and
+//! The square scene keeps its place in the middle of the panel and the ground, bushes and
 //! clouds carry on to both edges, so a wide sign reads as more of the same level. Once a minute
 //! Mario runs in from the left, jumps to bump a block, which flips its digits, and runs off right.
 //! Laid out for 256x64; smaller panels get the notice instead. Matches the ESP32 face.
@@ -96,17 +96,23 @@ impl MarioClock {
             Self::blit(matrix, &GROUND, GROUND_W, GROUND_H, x, ground_top, false);
             x += GROUND_W;
         }
+        // The hill is half a hill: its left side is a sheer vertical cut, drawn to sit flush against
+        // the frame edge so it reads as a slope running on past it. Tiled across a wide panel that
+        // cut lands in open sky and looks like a hill sliced off, so there is one, against the left
+        // edge, as in the original.
+        Self::blit(
+            matrix,
+            &HILL,
+            HILL_W,
+            HILL_H,
+            0,
+            ground_top - HILL_H + 2,
+            true,
+        );
+
+        // Bushes are whole sprites, so they carry on across the extra width.
         let mut hx = scene_left % 64 - 64;
         while hx < w {
-            Self::blit(
-                matrix,
-                &HILL,
-                HILL_W,
-                HILL_H,
-                hx,
-                ground_top - HILL_H + 2,
-                true,
-            );
             Self::blit(
                 matrix,
                 &BUSH,
