@@ -1,8 +1,10 @@
 //! Mario clock, adapted from the 64x64 "Clockwise" clockface cw-cf-0x01.
 //!
-//! The square scene keeps its place in the middle of the panel and the ground, bushes and
-//! clouds carry on to both edges, so a wide sign reads as more of the same level. Once a minute
-//! Mario runs in from the left, jumps to bump a block, which flips its digits, and runs off right.
+//! The square scene keeps its place in the middle of the panel and the ground and clouds carry on
+//! to both edges, so a wide sign reads as more of the same level. The hill and the bush are each cut
+//! down one side to sit against a frame edge, so there is one of each, at the edge it was drawn for.
+//! Once a minute Mario runs in from the left, jumps to bump a block, which flips its digits, and
+//! runs off right.
 //! Laid out for 256x64; smaller panels get the notice instead. Matches the ESP32 face.
 
 use crate::core::matrix::MatrixBackend;
@@ -110,20 +112,17 @@ impl MarioClock {
             true,
         );
 
-        // Bushes are whole sprites, so they carry on across the extra width.
-        let mut hx = scene_left % 64 - 64;
-        while hx < w {
-            Self::blit(
-                matrix,
-                &BUSH,
-                BUSH_W,
-                BUSH_H,
-                hx + 43,
-                ground_top - BUSH_H,
-                true,
-            );
-            hx += 64;
-        }
+        // The bush is the hill's mirror: cut down its right side, drawn to sit flush against the
+        // other frame edge (x 43 of 64, so its right edge lands exactly on it). One, on the right.
+        Self::blit(
+            matrix,
+            &BUSH,
+            BUSH_W,
+            BUSH_H,
+            w - BUSH_W,
+            ground_top - BUSH_H,
+            true,
+        );
         let mut cx = scene_left % 64 - 64;
         while cx < w {
             Self::blit(matrix, &CLOUD1, CLOUD_W, CLOUD_H, cx, 8, true);
