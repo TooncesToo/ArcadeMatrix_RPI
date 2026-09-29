@@ -3,6 +3,8 @@ use crate::engines::renderers::base_renderer::ArcadeFont;
 use crate::engines::renderers::BaseRenderer;
 
 pub struct PacmanClock {
+    /// Ms. Pac-Man: the same parade with a bow, an eye and lips over the body.
+    ms_variant: bool,
     pac_x: f32,
     direction: f32,
     anim_frame: u32,
@@ -16,8 +18,16 @@ pub struct PacmanClock {
 }
 
 impl PacmanClock {
+    /// Ms. Pac-Man: identical behaviour, her sprite.
+    pub fn new_ms() -> Self {
+        let mut c = Self::new();
+        c.ms_variant = true;
+        c
+    }
+
     pub fn new() -> Self {
         Self {
+            ms_variant: false,
             pac_x: 0.0,
             direction: 1.0,
             anim_frame: 0,
@@ -210,7 +220,7 @@ impl PacmanClock {
                             active_scale as f32,
                             tx,
                             ty_h,
-                            (100, 100, 100),
+                            (255, 255, 255),
                             (0, 0, 0),
                             current_pac_x.max(0),
                             w as i32,
@@ -237,7 +247,7 @@ impl PacmanClock {
                         active_scale as f32,
                         tx,
                         ty_m,
-                        (100, 100, 100),
+                        (255, 255, 255),
                         (0, 0, 0),
                     );
 
@@ -301,7 +311,7 @@ impl PacmanClock {
                         active_scale as f32,
                         tx,
                         ty_m,
-                        (100, 100, 100),
+                        (255, 255, 255),
                         (0, 0, 0),
                     );
 
@@ -364,7 +374,7 @@ impl PacmanClock {
                             active_scale as f32,
                             tx,
                             ty_m,
-                            (100, 100, 100),
+                            (255, 255, 255),
                             (0, 0, 0),
                             current_pac_x.max(0),
                             w as i32,
@@ -462,7 +472,9 @@ impl PacmanClock {
             let ghost_spacing = self.radius as f32 * 2.2;
             let reveal_x = (current_pac_x - (self.radius * 3 + 4 * ghost_spacing as i32)).max(0);
 
-            // 1. Draw new time behind reveal wave (0..reveal_x)
+            // 1. New time runs all the way up to Pac-Man's mouth, so the clock is never missing
+            // from the strip the parade is crossing; only the sprites themselves cover it.
+            let reveal_x = current_pac_x.max(0);
             if reveal_x > 0 {
                 Self::draw_clipped_text(
                     matrix,
@@ -487,7 +499,7 @@ impl PacmanClock {
                     active_scale as f32,
                     tx,
                     ty,
-                    (100, 100, 100),
+                    (255, 255, 255),
                     (0, 0, 0),
                     current_pac_x.max(0),
                     w as i32,
@@ -620,6 +632,43 @@ impl PacmanClock {
                     matrix.set_pixel(cx + dx, cy + dy, 255, 255, 0);
                 }
             }
+        }
+
+        if self.ms_variant {
+            // Bow with a lighter centre, an eye, and lips at the mouth, over the same body.
+            let bow = [
+                (-r, -r),
+                (-r + 1, -r),
+                (-r + 3, -r),
+                (-r + 4, -r),
+                (-r, -r + 1),
+                (-r + 1, -r + 1),
+                (-r + 2, -r + 1),
+                (-r + 3, -r + 1),
+                (-r + 4, -r + 1),
+                (-r, -r + 2),
+                (-r + 1, -r + 2),
+                (-r + 3, -r + 2),
+                (-r + 4, -r + 2),
+            ];
+            for (dx, dy) in bow {
+                matrix.set_pixel(cx + dx, cy + dy, 228, 0, 88);
+            }
+            for (dx, dy) in [(-r + 1, -r + 1), (-r + 3, -r + 1)] {
+                matrix.set_pixel(cx + dx, cy + dy, 255, 150, 200);
+            }
+            let eye_x = if facing_right { r / 3 } else { -r / 3 };
+            matrix.set_pixel(cx + eye_x, cy - r / 2, 16, 16, 40);
+            matrix.set_pixel(cx + eye_x + 1, cy - r / 2, 16, 16, 40);
+            let lip_x = if facing_right { r / 2 } else { -r / 2 };
+            matrix.set_pixel(cx + lip_x, cy + r / 3, 255, 80, 150);
+            matrix.set_pixel(
+                cx + lip_x + if facing_right { 1 } else { -1 },
+                cy + r / 3,
+                255,
+                80,
+                150,
+            );
         }
     }
 

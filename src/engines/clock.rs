@@ -18,6 +18,12 @@ pub struct ClockEngine {
     word: WordClock,
     binary: BinaryClock,
     pacman: PacmanClock,
+    ms_pacman: PacmanClock,
+    castle: CastleClock,
+    worldmap: WorldMapClock,
+    pokedex: PokedexClock,
+    mario: MarioClock,
+    words: WordsClock,
     versus: VersusClock,
     slot_machine: SlotMachineClock,
 
@@ -29,6 +35,8 @@ pub struct ClockEngine {
     timezone: String,
     clock_color_1: String,
     clock_color_2: String,
+    clock_glow: i32,
+    clock_glow_color: String,
     time_offset_x: i32,
     time_offset_y: i32,
 
@@ -144,6 +152,12 @@ impl ClockEngine {
             word: WordClock::new(),
             binary: BinaryClock::new(),
             pacman: PacmanClock::new(),
+            ms_pacman: PacmanClock::new_ms(),
+            castle: CastleClock::new(),
+            worldmap: WorldMapClock::new(),
+            pokedex: PokedexClock::new(),
+            mario: MarioClock::new(),
+            words: WordsClock::new(),
             versus: VersusClock::new(),
             slot_machine: SlotMachineClock::new(),
 
@@ -153,6 +167,8 @@ impl ClockEngine {
             time_theme: 0,
             timezone: "".to_string(),
             clock_color_1: "#ffffff".to_string(),
+            clock_glow: 0,
+            clock_glow_color: "#00ff41".to_string(),
             clock_color_2: "#ffffff".to_string(),
             time_offset_x: 0,
             time_offset_y: 0,
@@ -166,6 +182,17 @@ impl ClockEngine {
     /// Reads every configurable field from the instance config. Supports both
     /// unprefixed (format, font, size, theme) and legacy prefixed (clock_format,
     /// clock_font, clock_size, clock_theme) keys.
+    fn parse_hex(hex: &str) -> Option<(u8, u8, u8)> {
+        let h = hex.trim().trim_start_matches('#');
+        if h.len() < 6 {
+            return None;
+        }
+        let r = u8::from_str_radix(&h[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&h[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&h[4..6], 16).ok()?;
+        Some((r, g, b))
+    }
+
     fn apply_config(&mut self, config: &dyn EngineConfig) {
         let fmt = config.get_string("format", "");
         self.time_format = if !fmt.is_empty() {
@@ -173,6 +200,9 @@ impl ClockEngine {
         } else {
             config.get_string("clock_format", "%H:%M:%S")
         };
+
+        self.clock_glow = config.get_int("clock_glow", 0) as i32;
+        self.clock_glow_color = config.get_string("clock_glow_color", "#00ff41");
 
         let font = config.get_string("font", "");
         let font = if !font.is_empty() {
@@ -270,6 +300,11 @@ impl Engine for ClockEngine {
     }
 
     fn render(&mut self, context: &mut EngineContext) {
+        // Faces draw through BaseRenderer, which reads this when it lays the outline down.
+        BaseRenderer::set_glow(
+            self.clock_glow.clamp(0, 2) as u8,
+            Self::parse_hex(&self.clock_glow_color).unwrap_or((0, 255, 65)),
+        );
         let matrix = &mut *context.matrix;
 
         let (sys_tz, sys_24h) = {
@@ -465,6 +500,27 @@ impl Engine for ClockEngine {
             26 => self
                 .pacman
                 .render(matrix, &time_str, hours, minutes, &font, effective_size),
+            30 => self
+                .mario
+                .render(matrix, hours, minutes, &font, effective_size),
+            31 => self.castle.render(matrix, hours, minutes),
+            32 => self
+                .pokedex
+                .render(matrix, hours, minutes, seconds, &font, effective_size),
+            33 => self
+                .worldmap
+                .render(matrix, hours, minutes, &font, effective_size),
+            34 => self
+                .ms_pacman
+                .render(matrix, &time_str, hours, minutes, &font, effective_size),
+            37 => self.words.render(
+                matrix,
+                hours,
+                minutes,
+                &font,
+                effective_size,
+                &context.config.settings.read().system.lang,
+            ),
             27 => self
                 .versus
                 .render(matrix, hours, minutes, &font, effective_size),
@@ -594,6 +650,41 @@ fn register_clock_engine() -> EngineDescriptor {
                     min_val: Some("1"),
                     max_val: Some("10"),
                     validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "clock_glow",
+                    field_type: crate::core::engine_contract::ConfigType::Options,
+                    label: "Glow Outline",
+                    description: "Halo around the digits, the effect the Matrix face uses",
+                    default_value: "0",
+                    options: Some(vec![
+                        crate::core::engine_contract::ConfigOption {
+                            label: "Off",
+                            value: "0",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "Neon (Matrix style)",
+                            value: "1",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "Custom outline color",
+                            value: "2",
+                        },
+                    ]),
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "clock_glow_color",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Outline Color",
+                    description: "Color of the outline drawn around the digits",
+                    default_value: "#00FF41",
+                    visible_when: Some("clock_glow=2"),
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
                     ..Default::default()
                 },
                 crate::core::engine_contract::ConfigField {

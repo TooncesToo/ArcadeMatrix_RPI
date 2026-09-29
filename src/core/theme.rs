@@ -232,6 +232,50 @@ pub static THEMES: &[ThemeInfo] = &[
         primary_color: (15, 56, 15),
         secondary_color: (139, 172, 15),
     },
+    // Faces adapted from the Clockwise clockfaces. The ones laid out for a wide panel say so in
+    // their name, and show a notice rather than overlapping themselves on a small one.
+    ThemeInfo {
+        id: 30,
+        name: "Mario Clock (256x64)",
+        group: ThemeGroup::GameClock,
+        primary_color: (255, 255, 255),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 31,
+        name: "Clock Tower",
+        group: ThemeGroup::GameClock,
+        primary_color: (181, 140, 96),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 32,
+        name: "Pocket Index (256x64)",
+        group: ThemeGroup::GameClock,
+        primary_color: (255, 255, 255),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 33,
+        name: "World Clock",
+        group: ThemeGroup::GameClock,
+        primary_color: (255, 255, 255),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 34,
+        name: "Ms. Pac-Man Clock",
+        group: ThemeGroup::GameClock,
+        primary_color: (255, 255, 0),
+        secondary_color: (255, 60, 160),
+    },
+    ThemeInfo {
+        id: 37,
+        name: "Words Clock (256x64)",
+        group: ThemeGroup::GameClock,
+        primary_color: (255, 255, 255),
+        secondary_color: (72, 176, 200),
+    },
 ];
 
 /// Returns the full, ordered list of available themes (single source of truth).
@@ -245,7 +289,7 @@ pub fn all_themes() -> &'static [ThemeInfo] {
 /// themes (12-17), cyberpunk/flip (18-19), true-matrix (21), the game clocks
 /// (pong/tetris/pacman 22-24) and binary/versus/slot/tetris-gb (26-29).
 pub fn is_realtime_theme(theme_id: i32) -> bool {
-    matches!(theme_id, 12..=19 | 21..=24 | 26..=29)
+    matches!(theme_id, 12..=19 | 21..=24 | 26..=34 | 37)
 }
 
 pub fn get_theme_info(theme_id: i32) -> ThemeInfo {

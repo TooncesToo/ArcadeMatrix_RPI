@@ -114,6 +114,20 @@ Está desactivado por defecto para que la interfaz Web incluida funcione inmedia
 
 ---
 
+### Opciones de una instancia de reloj
+
+Además de `theme`, `font`, `size` y los colores, una instancia de reloj admite:
+
+| Clave | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `clock_glow` | `enum` | Contorno alrededor de los dígitos: `0` ninguno, `1` neón (el color elegido a plena intensidad con un centro casi blanco, como lo dibuja la cara Matrix), `2` un color propio. Por defecto `0`. |
+| `clock_glow_color` | `color` | Color del contorno cuando `clock_glow` es `2` (por defecto `#00FF41`). |
+
+Los temas `30` a `34` y `37` son caras adaptadas de los clockfaces de Clockwise. Las marcadas
+`(256x64)` están diseñadas para un panel ancho y muestran un aviso en los pequeños.
+
+---
+
 ## 7. Motores: `"instances"` & `"rotation"`
 
 La arquitectura desacoplada permite crear múltiples copias independientes y configuradas de forma distinta del mismo Motor.
