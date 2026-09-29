@@ -37,6 +37,8 @@ pub struct ClockEngine {
     clock_color_2: String,
     clock_glow: i32,
     clock_glow_color: String,
+    /// `clock_glow_color` parsed once, so render() does not re-read the string every frame.
+    clock_glow_rgb: (u8, u8, u8),
     time_offset_x: i32,
     time_offset_y: i32,
 
@@ -169,6 +171,7 @@ impl ClockEngine {
             clock_color_1: "#ffffff".to_string(),
             clock_glow: 0,
             clock_glow_color: "#00ff41".to_string(),
+            clock_glow_rgb: (0, 255, 65),
             clock_color_2: "#ffffff".to_string(),
             time_offset_x: 0,
             time_offset_y: 0,
@@ -203,6 +206,7 @@ impl ClockEngine {
 
         self.clock_glow = config.get_int("clock_glow", 0) as i32;
         self.clock_glow_color = config.get_string("clock_glow_color", "#00ff41");
+        self.clock_glow_rgb = Self::parse_hex(&self.clock_glow_color).unwrap_or((0, 255, 65));
 
         let font = config.get_string("font", "");
         let font = if !font.is_empty() {
@@ -301,10 +305,7 @@ impl Engine for ClockEngine {
 
     fn render(&mut self, context: &mut EngineContext) {
         // Faces draw through BaseRenderer, which reads this when it lays the outline down.
-        BaseRenderer::set_glow(
-            self.clock_glow.clamp(0, 2) as u8,
-            Self::parse_hex(&self.clock_glow_color).unwrap_or((0, 255, 65)),
-        );
+        BaseRenderer::set_glow(self.clock_glow.clamp(0, 2) as u8, self.clock_glow_rgb);
         let matrix = &mut *context.matrix;
 
         let (sys_tz, sys_24h) = {
