@@ -28,10 +28,17 @@ pub struct TetrisClock {
     gameboy_palette: bool,
     block_size: i32,
     base_dy: f32,
+    /// `clock_speed` as a percentage, the same knob the ESP32 uses for the block fall.
+    speed_pct: i32,
     last_frame_time: Option<std::time::Instant>,
 }
 
 impl TetrisClock {
+    /// `clock_speed` as a percentage, applied when the instance config changes.
+    pub fn configure(&mut self, speed_pct: i32) {
+        self.speed_pct = speed_pct.clamp(25, 300);
+    }
+
     pub fn new(gameboy_palette: bool) -> Self {
         Self {
             blocks: Vec::new(),
@@ -39,6 +46,7 @@ impl TetrisClock {
             gameboy_palette,
             block_size: 3,
             base_dy: 1.0,
+            speed_pct: 100,
             last_frame_time: None,
         }
     }
@@ -183,10 +191,13 @@ impl TetrisClock {
         self.last_frame_time = Some(now);
 
         let is_tate = w < 48 || h > (w * 3) / 2;
+        // clock_speed is a percentage: lower is slower, as on the ESP32, where it scales how long
+        // a digit takes to land.
+        let speed = self.speed_pct as f32 / 100.0;
         self.base_dy = if is_tate {
-            ((h as f32 / 3.0) / 45.0).clamp(0.6, 1.5)
+            (((h as f32 / 3.0) / 45.0) * speed).clamp(0.6, 1.5)
         } else {
-            (h as f32 / 45.0).clamp(0.6, 1.5)
+            ((h as f32 / 45.0) * speed).clamp(0.6, 1.5)
         };
 
         if is_tate {

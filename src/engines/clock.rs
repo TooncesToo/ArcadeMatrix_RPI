@@ -285,6 +285,8 @@ impl ClockEngine {
             .configure(speed_pct, self.time_offset_x, self.time_offset_y);
         self.ms_pacman
             .configure(speed_pct, self.time_offset_x, self.time_offset_y);
+        self.tetris.configure(speed_pct);
+        self.tetris_gb.configure(speed_pct);
     }
 }
 
