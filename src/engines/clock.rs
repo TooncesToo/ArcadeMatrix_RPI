@@ -629,6 +629,7 @@ fn register_clock_engine() -> EngineDescriptor {
                     default_value: "PressStart2P.ttf",
                     validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
                     options_endpoint: Some("/api/fonts"),
+                    visible_when: Some("theme!=30,31,32,33,37"),
                     ..Default::default()
                 },
                 crate::core::engine_contract::ConfigField {
@@ -674,6 +675,7 @@ fn register_clock_engine() -> EngineDescriptor {
                     ]),
                     validation_policy:
                         crate::core::engine_contract::ValidationPolicy::FallbackDefault,
+                    visible_when: Some("theme!=30,31,32,33"),
                     ..Default::default()
                 },
                 crate::core::engine_contract::ConfigField {
