@@ -1,5 +1,6 @@
 use crate::core::matrix::MatrixBackend;
 use crate::engines::renderers::base_renderer::ArcadeFont;
+use crate::engines::renderers::BaseRenderer;
 use rand::Rng;
 use std::collections::HashSet;
 
@@ -8,6 +9,14 @@ enum BlockState {
     In,
     Fixed,
     Out,
+}
+
+/// Which sides of a glyph cell face open space: 1 left, 2 right, 4 top, 8 bottom.
+fn edges_of(cells: &HashSet<(i32, i32)>, bx: i32, by: i32) -> u8 {
+    (if cells.contains(&(bx - 1, by)) { 0 } else { 1 })
+        | (if cells.contains(&(bx + 1, by)) { 0 } else { 2 })
+        | (if cells.contains(&(bx, by - 1)) { 0 } else { 4 })
+        | (if cells.contains(&(bx, by + 1)) { 0 } else { 8 })
 }
 
 #[derive(Clone)]
@@ -20,6 +29,10 @@ struct Block {
     color: (u8, u8, u8),
     state: BlockState,
     char_index: usize,
+    /// Which sides of this cell face open space in the finished digit: 1 left, 2 right, 4 top,
+    /// 8 bottom. Worked out while the targets are built, so tracing the outline costs nothing at
+    /// draw time. 0 for a cell buried inside the shape.
+    edges: u8,
 }
 
 pub struct TetrisClock {
@@ -53,7 +66,7 @@ impl TetrisClock {
 
     /// Builds target pixel positions for each character of `time_str`,
     /// treating each character as a grid of block_size×block_size cells.
-    /// Returns Vec<Vec<(f32, f32)>> indexed by character index.
+    /// Returns Vec<Vec<(x, y, edges)>> indexed by character index; see `Block::edges`.
     fn build_targets(
         &self,
         time_str: &str,
@@ -61,7 +74,7 @@ impl TetrisClock {
         h: u32,
         font: &ArcadeFont<'_>,
         scale_val: u32,
-    ) -> Vec<Vec<(f32, f32)>> {
+    ) -> Vec<Vec<(f32, f32, u8)>> {
         let is_tate = w < 48 || h > (w * 3) / 2;
         let block = self.block_size;
 
@@ -92,7 +105,7 @@ impl TetrisClock {
                 ]
             };
 
-            let mut result: Vec<Vec<(f32, f32)>> = Vec::with_capacity(chars.len());
+            let mut result: Vec<Vec<(f32, f32, u8)>> = Vec::with_capacity(chars.len());
             let mut i = 0;
             let mut current_tier = 0;
 
@@ -120,10 +133,10 @@ impl TetrisClock {
                     for (gx, gy) in char_pixels {
                         block_set.insert((gx, gy));
                     }
-                    for (bx, by) in block_set {
+                    for &(bx, by) in &block_set {
                         let tx = tier_start_x + (bx * block);
                         let target_y = ty + (by * block);
-                        targets.push((tx as f32, target_y as f32));
+                        targets.push((tx as f32, target_y as f32, edges_of(&block_set, bx, by)));
                     }
                     result.push(targets);
                 }
@@ -142,7 +155,7 @@ impl TetrisClock {
             let start_x = ((w as i32) - scaled_width) / 2;
             let start_y = ((h as i32) - scaled_height) / 2;
 
-            let mut result: Vec<Vec<(f32, f32)>> = Vec::new();
+            let mut result: Vec<Vec<(f32, f32, u8)>> = Vec::new();
 
             for char_pixels in pixels_by_char {
                 let mut targets = Vec::new();
@@ -152,10 +165,10 @@ impl TetrisClock {
                     block_set.insert((gx, gy));
                 }
 
-                for (bx, by) in block_set {
+                for &(bx, by) in &block_set {
                     let tx = start_x + (bx * block);
                     let ty = start_y + (by * block);
-                    targets.push((tx as f32, ty as f32));
+                    targets.push((tx as f32, ty as f32, edges_of(&block_set, bx, by)));
                 }
                 result.push(targets);
             }
@@ -259,7 +272,7 @@ impl TetrisClock {
                     } else {
                         colors_normal[char_idx % palette_len]
                     };
-                    for &(tx, ty) in targets {
+                    for &(tx, ty, edges) in targets {
                         let spawn_offset = if is_tate {
                             (h as f32 / 3.0) + rng.gen_range(0.0..(h as f32 / 4.0).max(1.0))
                         } else {
@@ -274,6 +287,7 @@ impl TetrisClock {
                             color,
                             state: BlockState::In,
                             char_index: char_idx,
+                            edges,
                         });
                     }
                 }
@@ -297,7 +311,7 @@ impl TetrisClock {
                         } else {
                             colors_normal[char_idx % palette_len]
                         };
-                        for &(tx, ty) in &targets_by_char[char_idx] {
+                        for &(tx, ty, edges) in &targets_by_char[char_idx] {
                             let spawn_offset = if is_tate {
                                 (h as f32 / 3.0) + rng.gen_range(0.0..(h as f32 / 4.0).max(1.0))
                             } else {
@@ -312,6 +326,7 @@ impl TetrisClock {
                                 color,
                                 state: BlockState::In,
                                 char_index: char_idx,
+                                edges,
                             });
                         }
                     }
@@ -323,6 +338,58 @@ impl TetrisClock {
 
         // Physics + draw
         let block = self.block_size;
+
+        // With the glow on, the digits stand outlined from the moment the time changes and the
+        // blocks drop into that shape. Each cell already knows which of its sides face open space,
+        // so this is one pass with no searching, and a buried cell costs only the test.
+        let (glow_mode, glow_color) = BaseRenderer::glow_setting();
+        if glow_mode != 0 {
+            for b in &self.blocks {
+                if b.state == BlockState::Out || b.edges == 0 {
+                    continue;
+                }
+                // Neon traces each cell in the colour of the block landing there, the way the
+                // Matrix face takes its halo from the text; mode 2 outlines it all in one colour.
+                let c = if glow_mode == 1 { b.color } else { glow_color };
+                let x0 = b.target_x as i32;
+                let y0 = b.target_y as i32;
+                let mut put = |x: i32, y: i32| matrix.set_pixel(x, y, c.0, c.1, c.2);
+                if b.edges & 1 != 0 {
+                    for k in 0..block {
+                        put(x0 - 1, y0 + k);
+                    }
+                }
+                if b.edges & 2 != 0 {
+                    for k in 0..block {
+                        put(x0 + block, y0 + k);
+                    }
+                }
+                if b.edges & 4 != 0 {
+                    for k in 0..block {
+                        put(x0 + k, y0 - 1);
+                    }
+                }
+                if b.edges & 8 != 0 {
+                    for k in 0..block {
+                        put(x0 + k, y0 + block);
+                    }
+                }
+                // Close the ring at the corners the two runs leave open.
+                if b.edges & 5 == 5 {
+                    put(x0 - 1, y0 - 1);
+                }
+                if b.edges & 6 == 6 {
+                    put(x0 + block, y0 - 1);
+                }
+                if b.edges & 9 == 9 {
+                    put(x0 - 1, y0 + block);
+                }
+                if b.edges & 10 == 10 {
+                    put(x0 + block, y0 + block);
+                }
+            }
+        }
+
         let mut keep = Vec::new();
         for mut b in self.blocks.drain(..) {
             match b.state {
