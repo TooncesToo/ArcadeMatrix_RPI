@@ -537,6 +537,20 @@ impl BaseRenderer {
         GLOW.store(packed, Ordering::Relaxed);
     }
 
+    /// The glow an instance configured: the mode (0 off, 1 neon, 2 a colour of its own) and the
+    /// colour mode 2 uses. For a face that needs the mode itself rather than the resolved ring.
+    pub fn glow_setting() -> (u8, (u8, u8, u8)) {
+        let packed = GLOW.load(Ordering::Relaxed);
+        (
+            (packed >> 24) as u8,
+            (
+                ((packed >> 16) & 0xFF) as u8,
+                ((packed >> 8) & 0xFF) as u8,
+                (packed & 0xFF) as u8,
+            ),
+        )
+    }
+
     fn paled(c: (u8, u8, u8)) -> (u8, u8, u8) {
         let up = |v: u8| -> u8 { v.saturating_add(((255 - v) as u32 * 3 / 4) as u8) };
         (up(c.0), up(c.1), up(c.2))

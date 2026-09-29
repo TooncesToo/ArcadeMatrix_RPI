@@ -59,6 +59,13 @@ impl PacmanClock {
         let h = matrix.height() as f32;
         self.anim_frame += 1;
 
+        // Her digits carry her own colour when nothing else is configured, as on the ESP32. The
+        // clock engine republishes the instance's own setting before every render, so this only
+        // applies while she is the face on screen.
+        if self.ms_variant && BaseRenderer::glow_setting().0 == 0 {
+            BaseRenderer::set_glow(2, (255, 60, 160));
+        }
+
         let now_h = hours as i32;
         let now_min = minutes as i32;
 
