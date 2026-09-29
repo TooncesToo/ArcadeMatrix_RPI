@@ -4,6 +4,7 @@ pub mod cwassets;
 pub mod cwscene;
 pub mod mario_clock;
 pub mod pacman_clock;
+pub mod pacsprites;
 pub mod pokedex_clock;
 pub mod pong_clock;
 pub mod slot_machine_clock;

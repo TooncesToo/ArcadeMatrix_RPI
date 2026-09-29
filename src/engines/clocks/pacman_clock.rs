@@ -1,4 +1,5 @@
 use crate::core::matrix::MatrixBackend;
+use crate::engines::clocks::pacsprites::*;
 use crate::engines::renderers::base_renderer::ArcadeFont;
 use crate::engines::renderers::BaseRenderer;
 
@@ -107,13 +108,15 @@ impl PacmanClock {
                 text_h = text_h.max(py + 1);
             }
         }
-        let max_pac_radius = if is_tate {
-            ((w as i32 / 2) - 2).min((h as i32 / 4) - 2)
+        // The 14 px ghost fills the panel (or the tier, in tate) with a small margin, which is how
+        // the ESP32 face sizes the parade. Following the text height instead made the sprites a
+        // different size on each platform for the same panel.
+        let lane = if is_tate {
+            (w as i32).min(h as i32 / 2)
         } else {
-            (h as i32 / 2) - 1
+            h as i32
         };
-        let target_r = ((text_h as f32 * 0.70) as i32) + 1;
-        self.radius = target_r.max(3).min(max_pac_radius);
+        self.radius = ((lane - 1) / 2).max(3);
         self.speed = (0.8 * w / 64.0).max(0.6);
 
         let py = (h / 2.0) as i32;
@@ -488,13 +491,16 @@ impl PacmanClock {
             let mouth_angle = ((self.anim_frame as f32 * 0.5).sin().abs() * 45.0) as i32;
             let ghost_colors: [(u8, u8, u8); 4] =
                 [(255, 0, 0), (255, 184, 255), (0, 255, 255), (255, 184, 82)];
-            let first_ghost = self.radius * 3;
-            let ghost_gap = self.radius * 2;
+            let s = Self::sprite_scale(self.radius);
+            let pac_w = PAC_FRAME_CLOSED_COLS * s;
+            let ghost_w = GHOST_BODY_COLS * s;
+            let ghost_gap = ghost_w + 2 * s; // ghost centre -> next ghost centre
+            let first_ghost = pac_w / 2 + 4 * s + ghost_w / 2; // Pac-Man centre -> first ghost
             let dot_color = (255, 183, 174);
             // The energizer waits at the right edge. Reaching it is what ends the first leg: it is
             // what frightens the ghosts, so they turn blue and everyone reverses there rather than
             // after the whole line has left the panel. Matches the ESP32 face.
-            let energizer_x = w as i32 - (self.radius + 2);
+            let energizer_x = w as i32 - 4 * s;
 
             if self.pac_x <= energizer_x as f32 {
                 let current_pac_x = self.pac_x as i32;
@@ -534,12 +540,13 @@ impl PacmanClock {
                 }
 
                 // 3. The energizer, flashing until he gets to it.
-                if (self.anim_frame / 6) % 2 == 0 {
-                    for dy in -1..=1 {
-                        for dx in -1..=1 {
+                if (self.anim_frame / 3) % 2 == 0 {
+                    let er = (2 * s).max(2);
+                    for dy in 0..er {
+                        for dx in 0..er {
                             matrix.set_pixel(
-                                energizer_x + dx,
-                                py + dy,
+                                energizer_x - er / 2 + dx,
+                                py - er / 2 + dy,
                                 dot_color.0,
                                 dot_color.1,
                                 dot_color.2,
@@ -548,20 +555,27 @@ impl PacmanClock {
                     }
                 }
 
+                // A few crumbs at the mouth, so he still reads as eating the old time.
+                let seed = (self.anim_frame ^ (current_pac_x as u32)) as i32;
+                for pcrumb in 0..4 {
+                    let cut_x = current_pac_x + pac_w / 2;
+                    let ox = (seed + pcrumb * 7).rem_euclid(3 * s);
+                    let oy = (seed * 3 + pcrumb * 11).rem_euclid(8 * s) - 4 * s;
+                    if cut_x + ox < w as i32 {
+                        matrix.set_pixel(
+                            cut_x + ox,
+                            py + oy,
+                            dot_color.0,
+                            dot_color.1,
+                            dot_color.2,
+                        );
+                    }
+                }
+
                 self.draw_pacman(matrix, current_pac_x, py, self.radius, mouth_angle, true);
                 for (i, &gc) in ghost_colors.iter().enumerate() {
                     let gx = current_pac_x - first_ghost - (i as i32 * ghost_gap);
-                    let gy_offset = ((self.anim_frame as f32 * 0.2 + i as f32).sin()
-                        * (self.radius as f32 / 3.0)) as i32;
-                    self.draw_ghost(
-                        matrix,
-                        gx,
-                        py + gy_offset,
-                        self.radius - 1,
-                        gc,
-                        self.anim_frame,
-                        false,
-                    );
+                    self.draw_ghost(matrix, gx, py, self.radius - 1, gc, self.anim_frame, false);
                 }
             } else {
                 // The energizer has been eaten. The ghosts are blue and everyone has turned where
@@ -581,17 +595,7 @@ impl PacmanClock {
                 let back = energizer_x - (self.pac_x as i32 - energizer_x);
                 for (i, &gc) in ghost_colors.iter().enumerate() {
                     let gx = back - first_ghost - (i as i32 * ghost_gap);
-                    let gy_offset = ((self.anim_frame as f32 * 0.2 + i as f32).sin()
-                        * (self.radius as f32 / 3.0)) as i32;
-                    self.draw_ghost(
-                        matrix,
-                        gx,
-                        py + gy_offset,
-                        self.radius - 1,
-                        gc,
-                        self.anim_frame,
-                        true,
-                    );
+                    self.draw_ghost(matrix, gx, py, self.radius - 1, gc, self.anim_frame, true);
                 }
                 self.draw_pacman(matrix, back, py, self.radius, mouth_angle, false);
             }
@@ -669,6 +673,42 @@ impl PacmanClock {
         }
     }
 
+    /// One integer scale for the whole parade, the way the ESP32 face sizes it: the 14 px ghost
+    /// fills the lane with a small margin, and Pac-Man is drawn at the same scale.
+    fn sprite_scale(r: i32) -> i32 {
+        ((2 * r - 1) / GHOST_BODY_COLS).max(1)
+    }
+
+    /// Blit one row-mask sprite. `mirror` flips it horizontally, which is how Pac-Man faces left.
+    #[allow(clippy::too_many_arguments)]
+    fn blit(
+        matrix: &mut dyn MatrixBackend,
+        rows: &[u16],
+        n_cols: i32,
+        left: i32,
+        top: i32,
+        s: i32,
+        color: (u8, u8, u8),
+        mirror: bool,
+    ) {
+        for (r, &bits) in rows.iter().enumerate() {
+            let y = top + r as i32 * s;
+            for c in 0..n_cols {
+                let src = if mirror { n_cols - 1 - c } else { c };
+                if bits & (1u16 << (n_cols - 1 - src)) == 0 {
+                    continue;
+                }
+                for dy in 0..s {
+                    for dx in 0..s {
+                        matrix.set_pixel(left + c * s + dx, y + dy, color.0, color.1, color.2);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Pac-Man from the same 13x13 pixel art the ESP32 face uses, rather than a drawn circle with a
+    /// wedge cut out of it. `mouth_deg` is the caller's animation, mapped onto the three frames.
     fn draw_pacman(
         &self,
         matrix: &mut dyn MatrixBackend,
@@ -678,62 +718,73 @@ impl PacmanClock {
         mouth_deg: i32,
         facing_right: bool,
     ) {
-        for dy in -r..=r {
-            for dx in -r..=r {
-                if dx * dx + dy * dy > r * r {
-                    continue;
-                }
-                let in_mouth = if facing_right {
-                    dx > 0 && dy.abs() * 45 < dx * mouth_deg
-                } else {
-                    dx < 0 && dy.abs() * 45 < (-dx) * mouth_deg
-                };
-                if !in_mouth {
-                    matrix.set_pixel(cx + dx, cy + dy, 255, 255, 0);
-                }
-            }
-        }
+        let s = Self::sprite_scale(r);
+        let w = PAC_FRAME_CLOSED_COLS * s;
+        let h = PAC_FRAME_CLOSED_ROWS * s;
+        let left = cx - w / 2;
+        let top = cy - h / 2;
+        let frame = if mouth_deg < 15 {
+            0
+        } else if mouth_deg < 30 {
+            1
+        } else {
+            2
+        };
 
         if self.ms_variant {
-            // Bow with a lighter centre, an eye, and lips at the mouth, over the same body.
-            let bow = [
-                (-r, -r),
-                (-r + 1, -r),
-                (-r + 3, -r),
-                (-r + 4, -r),
-                (-r, -r + 1),
-                (-r + 1, -r + 1),
-                (-r + 2, -r + 1),
-                (-r + 3, -r + 1),
-                (-r + 4, -r + 1),
-                (-r, -r + 2),
-                (-r + 1, -r + 2),
-                (-r + 3, -r + 2),
-                (-r + 4, -r + 2),
-            ];
-            for (dx, dy) in bow {
-                matrix.set_pixel(cx + dx, cy + dy, 228, 0, 88);
+            // She is not one colour, so her frames are colour-indexed rather than a plain mask.
+            let art: &[&str; 13] = match frame {
+                0 => &MSPAC_CLOSED,
+                1 => &MSPAC_HALF,
+                _ => &MSPAC_OPEN,
+            };
+            for (row_i, row) in art.iter().enumerate() {
+                let bytes = row.as_bytes();
+                for c in 0..MSPAC_COLS {
+                    let src = if facing_right { c } else { MSPAC_COLS - 1 - c };
+                    let col = match bytes[src as usize] {
+                        b'y' => (255, 255, 0),
+                        b'r' => (228, 0, 88),    // bow
+                        b'p' => (255, 150, 200), // bow highlight
+                        b'k' => (16, 16, 40),    // eye
+                        b'l' => (255, 80, 150),  // lips
+                        _ => continue,
+                    };
+                    for dy in 0..s {
+                        for dx in 0..s {
+                            matrix.set_pixel(
+                                left + c * s + dx,
+                                top + row_i as i32 * s + dy,
+                                col.0,
+                                col.1,
+                                col.2,
+                            );
+                        }
+                    }
+                }
             }
-            for (dx, dy) in [(-r + 1, -r + 1), (-r + 3, -r + 1)] {
-                matrix.set_pixel(cx + dx, cy + dy, 255, 150, 200);
-            }
-            let eye_x = if facing_right { r / 3 } else { -r / 3 };
-            matrix.set_pixel(cx + eye_x, cy - r / 2, 16, 16, 40);
-            matrix.set_pixel(cx + eye_x + 1, cy - r / 2, 16, 16, 40);
-            let lip_x = if facing_right { r / 2 } else { -r / 2 };
-            matrix.set_pixel(cx + lip_x, cy + r / 3, 255, 80, 150);
-            matrix.set_pixel(
-                cx + lip_x + if facing_right { 1 } else { -1 },
-                cy + r / 3,
-                255,
-                80,
-                150,
-            );
+            return;
         }
+
+        let rows: &[u16] = match frame {
+            0 => &PAC_FRAME_CLOSED,
+            1 => &PAC_FRAME_HALF,
+            _ => &PAC_FRAME_OPEN,
+        };
+        Self::blit(
+            matrix,
+            rows,
+            PAC_FRAME_CLOSED_COLS,
+            left,
+            top,
+            s,
+            (255, 255, 0),
+            !facing_right,
+        );
     }
 
-    /// `frightened` draws the blue ghost the energizer turns them into: blue body, pale eyes and
-    /// a wavy mouth instead of pupils, matching the ESP32 face.
+    /// Ghosts from the same 14 px pixel art the ESP32 face uses: a 12-row body with a two-frame
+    /// skirt, eyes and pupils over it, or the frightened face the energizer produces.
     #[allow(clippy::too_many_arguments)]
     fn draw_ghost(
         &self,
@@ -745,45 +796,62 @@ impl PacmanClock {
         tick: u32,
         frightened: bool,
     ) {
-        let color = if frightened { (33, 33, 255) } else { color };
-        // Upper semicircle body
-        for dy in -r..=0i32 {
-            for dx in -r..=r {
-                if dx * dx + dy * dy <= r * r {
-                    matrix.set_pixel(cx + dx, cy + dy, color.0, color.1, color.2);
-                }
-            }
-        }
-        // Rectangular lower body
-        for dy in 0..=r {
-            for dx in -r..=r {
-                matrix.set_pixel(cx + dx, cy + dy, color.0, color.1, color.2);
-            }
-        }
-        // Tentacles at bottom (alternating based on tick)
-        let wave = (tick / 3) % 2 == 0;
-        for i in 0..3i32 {
-            let tx = cx - r + i * (r * 2 / 3) + r / 3;
-            let bottom_y = cy + r;
-            if (i % 2 == 0) == wave {
-                matrix.set_pixel(tx, bottom_y + 1, 0, 0, 0);
-            }
-        }
-        if frightened {
-            // Pale eyes with no pupils, and a wavy mouth across the body.
-            matrix.set_pixel(cx - r / 2, cy - 1, 255, 255, 255);
-            matrix.set_pixel(cx + r / 2, cy - 1, 255, 255, 255);
-            for dx in -r..=r {
-                let wobble = if (dx.rem_euclid(4)) < 2 { 0 } else { 1 };
-                matrix.set_pixel(cx + dx, cy + r / 2 + wobble, 255, 255, 255);
-            }
+        let s = Self::sprite_scale(r);
+        let cols = GHOST_BODY_COLS;
+        let w = cols * s;
+        let h = (GHOST_BODY_ROWS + SKIRT_A_ROWS) * s;
+        let left = cx - w / 2;
+        let top = cy - h / 2;
+
+        let body = if frightened { (33, 33, 255) } else { color };
+        Self::blit(matrix, &GHOST_BODY, cols, left, top, s, body, false);
+        let skirt: &[u16] = if (tick / 3) % 2 == 0 {
+            &SKIRT_A
         } else {
-            // White eyes
-            matrix.set_pixel(cx - r / 2, cy - 1, 255, 255, 255);
-            matrix.set_pixel(cx + r / 2, cy - 1, 255, 255, 255);
-            // Blue pupils
-            matrix.set_pixel(cx - r / 2 + 1, cy - 1, 0, 0, 200);
-            matrix.set_pixel(cx + r / 2 + 1, cy - 1, 0, 0, 200);
+            &SKIRT_B
+        };
+        Self::blit(
+            matrix,
+            skirt,
+            cols,
+            left,
+            top + GHOST_BODY_ROWS * s,
+            s,
+            body,
+            false,
+        );
+        if frightened {
+            Self::blit(
+                matrix,
+                &FRIGHT_FACE,
+                cols,
+                left,
+                top + 5 * s,
+                s,
+                (255, 184, 174),
+                false,
+            );
+        } else {
+            Self::blit(
+                matrix,
+                &EYES,
+                cols,
+                left,
+                top + 3 * s,
+                s,
+                (255, 255, 255),
+                false,
+            );
+            Self::blit(
+                matrix,
+                &PUPIL_R,
+                cols,
+                left,
+                top + 5 * s,
+                s,
+                (33, 33, 255),
+                false,
+            );
         }
     }
 }
