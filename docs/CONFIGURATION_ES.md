@@ -45,6 +45,8 @@ Este bloque configura los parámetros DMA para la biblioteca hzeller `rpi-rgb-le
 | `row_address_mode` | `int` | Tipo de direccionamiento de filas para paneles exóticos (`0` por defecto). |
 | `multiplexing` | `int` | Tipo de multiplexado del panel (`0` por defecto). |
 | `panel_type` | `String` | Cadena opcional de inicialización del panel (ej. `FM6126A`), normalmente vacía. |
+| `slot_transition` | `String` | Efecto reproducido cuando la rotación pasa a la siguiente pantalla (`wipe`, `curtain`, `shutter`, `dissolve`, `checker`, `matrix`, `slide`, `zoom`, `glitch`, `random`, `none`). Por defecto `none`. |
+| `slot_transition_duration_ms` | `int` | Duración de la transición entre pantallas, en milisegundos (`100`-`3000`, por defecto `500`). |
 
 > El brillo diurno en vivo **no** se almacena en este bloque; se controla en tiempo de ejecución desde la interfaz Web (deslizador del Dashboard → `POST /api/system { "brightness_limit": 0-100 }`). El brillo nocturno vive en el bloque `system` (§4).
 

@@ -742,6 +742,8 @@ async function initSettings() {
     // Screen Orientation & Transitions (General preferences)
     setVal('sys-screen-rotation', matrix.rotation ?? 0);
     setVal('sys-rotation-transition', matrix.transition_effect || 'vortex');
+    setVal('sys-slot-transition', matrix.slot_transition || 'none');
+    setVal('sys-slot-transition-duration', matrix.slot_transition_duration_ms || 500);
     setVal('sys-transition-duration', matrix.transition_duration_ms || 400);
 
     // Raspberry Pi Matrix Hardware (pure RPi HUB75 configuration)
@@ -790,6 +792,8 @@ async function initSettings() {
       const rotation = parseInt(document.getElementById('sys-screen-rotation')?.value) || 0;
       const transitionEffect = document.getElementById('sys-rotation-transition')?.value || 'vortex';
       const transitionDuration = parseInt(document.getElementById('sys-transition-duration')?.value) || 400;
+      const slotTransition = document.getElementById('sys-slot-transition')?.value || 'none';
+      const slotTransitionDuration = parseInt(document.getElementById('sys-slot-transition-duration')?.value) || 500;
 
       try {
         await API.post('/api/system', {
@@ -802,12 +806,16 @@ async function initSettings() {
           idle_fighter_speed: idleFighterSpeed,
           rotation,
           transition_effect: transitionEffect,
-          transition_duration_ms: transitionDuration
+          transition_duration_ms: transitionDuration,
+          slot_transition: slotTransition,
+          slot_transition_duration_ms: slotTransitionDuration
         });
         if (window.__sysConfig && window.__sysConfig.matrix) {
           window.__sysConfig.matrix.rotation = rotation;
           window.__sysConfig.matrix.transition_effect = transitionEffect;
           window.__sysConfig.matrix.transition_duration_ms = transitionDuration;
+          window.__sysConfig.matrix.slot_transition = slotTransition;
+          window.__sysConfig.matrix.slot_transition_duration_ms = slotTransitionDuration;
         }
         setLanguage(lang);
         window.showToast(t('system_prefs_saved', 'System preferences and display rotation saved in real-time!'), 'success');

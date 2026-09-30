@@ -264,6 +264,8 @@ struct RuntimeSnapshot {
     system: crate::core::config::SystemConfig,
     mqtt: crate::core::config::MqttConfig,
     display_rotation: u8,
+    slot_transition: String,
+    slot_transition_duration_ms: u32,
     mqtt_handle: EngineHandle,
     marquee_handle: EngineHandle,
 }
@@ -323,6 +325,8 @@ fn build_runtime_snapshot(
         system: settings.system.clone(),
         mqtt: settings.mqtt.clone(),
         display_rotation: normalize_rotation(settings.matrix.rotation),
+        slot_transition: settings.matrix.slot_transition.clone(),
+        slot_transition_duration_ms: settings.matrix.slot_transition_duration_ms,
         mqtt_handle,
         marquee_handle,
     }
@@ -443,6 +447,7 @@ impl ArcadeMatrixApp {
         let mut runtime = DisplayRuntime::new();
         let mut engine_runtime = EngineRuntime::new();
         let mut rotation_manager = RotationManager::new();
+        let mut slot_transition = crate::core::slot_transition::SlotTransition::default();
         let mut overlay_manager = crate::core::overlay_manager::OverlayManager::new(width, height);
         let mut message_engine = crate::engines::message::MessageEngine::new();
 
@@ -734,7 +739,19 @@ impl ArcadeMatrixApp {
                 };
                 if should_advance {
                     rotation_manager.advance_len(snapshot.rotation.len());
+                    slot_transition.configure(
+                        &snapshot.slot_transition,
+                        snapshot.slot_transition_duration_ms,
+                    );
+                    slot_transition.start();
                 }
+            }
+
+            // The transition covers the gap while the next engine prepares its first frame: a GIF
+            // spends it opening a file, which used to show as a blank panel.
+            if slot_transition.is_running() {
+                slot_transition.render(matrix.as_mut());
+                realtime_cadence = true;
             }
 
             overlay_manager.composite(matrix.as_mut());

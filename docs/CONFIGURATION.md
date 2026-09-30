@@ -45,6 +45,8 @@ This block configures the DMA parameters for the hzeller `rpi-rgb-led-matrix` li
 | `row_address_mode` | `int` | Row addressing type for exotic panels (`0` default). |
 | `multiplexing` | `int` | Panel multiplexing type (`0` default). |
 | `panel_type` | `String` | Optional panel init string (e.g. `FM6126A`), usually empty. |
+| `slot_transition` | `String` | Effect played when the rotation moves to the next slot (`wipe`, `curtain`, `shutter`, `dissolve`, `checker`, `matrix`, `slide`, `zoom`, `glitch`, `random`, `none`). Default `none`. |
+| `slot_transition_duration_ms` | `int` | Slot transition duration in milliseconds (`100`-`3000`, default `500`). |
 
 > Live daytime brightness is **not** stored in this block; it is controlled at runtime from the Web UI (Dashboard slider → `POST /api/system { "brightness_limit": 0-100 }`). Night brightness lives in the `system` block (§4).
 

@@ -12,6 +12,7 @@ pub mod registry;
 pub mod rotation;
 pub mod rotation_manager;
 pub mod runtime;
+pub mod slot_transition;
 pub mod splash;
 pub mod ssh_installer;
 pub mod theme;

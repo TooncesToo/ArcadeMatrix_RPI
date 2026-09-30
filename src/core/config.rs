@@ -104,6 +104,11 @@ pub struct MatrixConfig {
     pub rotation: u32,
     pub transition_effect: String,
     pub transition_duration_ms: u32,
+    /// Effect played when the rotation moves to the next slot ("none" disables it).
+    #[serde(default = "default_slot_transition")]
+    pub slot_transition: String,
+    #[serde(default = "default_slot_transition_ms")]
+    pub slot_transition_duration_ms: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,6 +186,14 @@ pub struct ConfigSettings {
     pub api_token: String,
 }
 
+fn default_slot_transition() -> String {
+    "none".to_string()
+}
+
+fn default_slot_transition_ms() -> u32 {
+    500
+}
+
 impl Default for MatrixConfig {
     fn default() -> Self {
         Self {
@@ -207,6 +220,8 @@ impl Default for MatrixConfig {
             rotation: 0,
             transition_effect: "vortex".to_string(),
             transition_duration_ms: 400,
+            slot_transition: default_slot_transition(),
+            slot_transition_duration_ms: default_slot_transition_ms(),
         }
     }
 }

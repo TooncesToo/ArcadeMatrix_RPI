@@ -45,6 +45,8 @@ Ce bloc configure les paramètres DMA de la bibliothèque hzeller `rpi-rgb-led-m
 | `row_address_mode` | `int` | Type d'adressage des lignes pour panneaux exotiques (`0` par défaut). |
 | `multiplexing` | `int` | Type de multiplexage du panneau (`0` par défaut). |
 | `panel_type` | `String` | Chaîne d'initialisation optionnelle du panneau (ex. `FM6126A`), généralement vide. |
+| `slot_transition` | `String` | Effet joué lorsque la rotation passe à l'écran suivant (`wipe`, `curtain`, `shutter`, `dissolve`, `checker`, `matrix`, `slide`, `zoom`, `glitch`, `random`, `none`). Par défaut `none`. |
+| `slot_transition_duration_ms` | `int` | Durée de la transition entre écrans, en millisecondes (`100`-`3000`, par défaut `500`). |
 
 > La luminosité de jour en direct **n'est pas** stockée dans ce bloc ; elle est contrôlée à l'exécution depuis la Web UI (curseur du Dashboard → `POST /api/system { "brightness_limit": 0-100 }`). La luminosité de nuit se trouve dans le bloc `system` (§4).
 
