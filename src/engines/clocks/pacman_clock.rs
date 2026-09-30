@@ -602,7 +602,10 @@ impl PacmanClock {
                 // The energizer has been eaten. The ghosts are blue and everyone has turned where
                 // they stood, so the line carries on from the positions it held and walks back off
                 // the left edge with Pac-Man behind it.
-                BaseRenderer::draw_text_at(
+                // Through the clipping helper like every other leg, so the colon keeps its own
+                // colour here too. draw_text_at paints the whole string one colour, which left the
+                // colon white on the way back and blue everywhere else.
+                Self::draw_clipped_text(
                     matrix,
                     &self.new_time_str.clone(),
                     font,
@@ -611,6 +614,10 @@ impl PacmanClock {
                     new_ty,
                     self.digit_color,
                     (0, 0, 0),
+                    0,
+                    w as i32,
+                    true,
+                    Self::COLON_COLOR,
                 );
 
                 let back = energizer_x - (self.pac_x - leg_to_dot) as i32;
