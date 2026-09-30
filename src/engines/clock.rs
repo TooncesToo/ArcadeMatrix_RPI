@@ -281,7 +281,14 @@ impl ClockEngine {
 
         // The parade honours clock_speed and the offsets, as it does on the ESP32.
         let speed_pct = config.get_int("clock_speed", 100) as i32;
-        let digit_color = parse_hex_color(&self.clock_color_1).unwrap_or((255, 255, 255));
+        // Only pass a colour the instance actually chose; unset lets the face use its own palette.
+        let digit_color = if config.get_string("color_1", "").is_empty()
+            && config.get_string("clock_color_1", "").is_empty()
+        {
+            None
+        } else {
+            parse_hex_color(&self.clock_color_1)
+        };
         self.pacman.configure(
             speed_pct,
             self.time_offset_x,

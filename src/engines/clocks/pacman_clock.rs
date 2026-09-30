@@ -23,8 +23,8 @@ pub struct PacmanClock {
     speed_pct: i32,
     offset_x: i32,
     offset_y: i32,
-    /// `clock_color_1`. The colon is not configurable: the ESP32 face fixes it at a blue that
-    /// reads against the digits whatever colour they are.
+    /// `clock_color_1`, or the face's own default. The colon is not configurable: the ESP32 face
+    /// fixes it at a blue that reads against the digits whatever colour they are.
     digit_color: (u8, u8, u8),
 }
 
@@ -51,7 +51,7 @@ impl PacmanClock {
             speed_pct: 100,
             offset_x: 0,
             offset_y: 0,
-            digit_color: (255, 255, 255),
+            digit_color: Self::COLON_COLOR,
             radius: 4,
         }
     }
@@ -72,11 +72,18 @@ impl PacmanClock {
         let w = matrix.width() as f32;
         let h = matrix.height() as f32;
 
-        // Her digits carry her own colour when nothing else is configured, as on the ESP32. The
-        // clock engine republishes the instance's own setting before every render, so this only
-        // applies while she is the face on screen.
-        if self.ms_variant && BaseRenderer::glow_setting().0 == 0 {
-            BaseRenderer::set_glow(2, (255, 60, 160));
+        // Each variant carries its own outline colour when nothing else is configured, as on the
+        // ESP32. The clock engine republishes the instance's own setting before every render, so
+        // this only applies while this face is the one on screen.
+        if BaseRenderer::glow_setting().0 == 0 {
+            BaseRenderer::set_glow(
+                2,
+                if self.ms_variant {
+                    (255, 60, 160) // her hot pink
+                } else {
+                    (255, 255, 0) // Pac-Man's yellow
+                },
+            );
         }
 
         let now_h = hours as i32;
@@ -740,15 +747,15 @@ impl PacmanClock {
         speed_pct: i32,
         offset_x: i32,
         offset_y: i32,
-        digit_color: (u8, u8, u8),
+        digit_color: Option<(u8, u8, u8)>,
     ) {
         self.speed_pct = speed_pct.clamp(25, 300);
         self.offset_x = offset_x;
         self.offset_y = offset_y;
-        self.digit_color = if digit_color == (0, 0, 0) {
-            (255, 255, 255)
-        } else {
-            digit_color
+        // Unset, or set to black, falls back to the face's own palette.
+        self.digit_color = match digit_color {
+            Some(c) if c != (0, 0, 0) => c,
+            _ => Self::COLON_COLOR,
         };
     }
 
