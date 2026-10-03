@@ -3,6 +3,7 @@ pub mod cyberpunk_renderer;
 pub mod flip_renderer;
 pub mod primitives;
 pub mod sparkline;
+pub mod tiny_font;
 pub mod true_matrix_renderer;
 
 pub use base_renderer::BaseRenderer;

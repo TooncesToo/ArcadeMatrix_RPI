@@ -118,7 +118,7 @@ Une seconde connexion MQTT, indépendante du bloc `"mqtt"` ci-dessus. Elle **ne 
 | `topic_prefix` | `String` | Le client s'abonne à `<topic_prefix>/#` (défaut `arcadematrix`). |
 
 - L'identifiant client MQTT est `<hostname>-data`, plusieurs panneaux peuvent donc partager un broker.
-- Jusqu'à 8 topics sont conservés, 4096 octets par message (au-delà, le message est ignoré). Publiez en **retained** pour que la valeur soit là dès le redémarrage.
+- Jusqu'à 8 topics sont conservés, 8192 octets par message (au-delà, le message est ignoré). Publiez en **retained** pour que la valeur soit là dès le redémarrage.
 - `GET /api/stats` indique `data_mqtt_connected` et `data_mqtt_topics`.
 - Modifier ce bloc redémarre l'application, comme pour le bloc `"mqtt"`.
 
@@ -278,12 +278,25 @@ Chaque moteur expose ses propres champs via son `ConfigSchema` (consultable à `
 ### Moteur : `weather`
 | Champ | Type | Défaut | Options | Description |
 | :--- | :--- | :--- | :--- | :--- |
+| `source` | `Options` | `owm` | `owm`, `ha` | `owm` = OpenWeatherMap en HTTP. `ha` = « Home Assistant (MQTT) » : un message retained sur le broker `data_mqtt` ; `api_key`, `city` et `units` sont alors masqués et inutilisés. |
+| `topic` | `String` | `arcadematrix/weather/local` | Texte | Seulement avec `source = ha` : topic du message météo. |
 | `api_key` | `String` | `""` | Clé API gratuite | Clé API OpenWeatherMap (création gratuite sur [openweathermap.org](https://home.openweathermap.org/users/sign_up)). |
 | `city` | `String` | `""` | Texte | Ville pour les prévisions météo (voir guide ci-dessous). |
 | `units` | `Options` | `metric` | `metric`, `imperial` | Unité de température : `metric` pour Celsius (°C) ou `imperial` pour Fahrenheit (°F). |
 | `lang` | `Options` | `en` | `en`, `fr`, `es` | Langue d'affichage des jours (TODAY / AUJ. / HOY). |
 | `offset_x` | `int` | `0` | `-64` à `64` | Décalage horizontal en pixels. |
 | `offset_y` | `int` | `0` | `-32` à `32` | Décalage vertical en pixels. |
+
+Avec `source = ha`, le panneau ne fait aucune requête HTTP. Message (températures déjà dans l'unité de HA, aucune conversion) :
+
+```json
+{"v":1,"units":"imperial",
+ "current":{"temp":75,"condition":"clear-night"},
+ "days":[{"temp_max":89,"temp_min":70,"condition":"sunny"},
+         {"temp_max":90,"temp_min":71,"condition":"partlycloudy"}]}
+```
+
+`units` : `imperial` = °F, `metric` = °C. Le jour 0 utilise la mesure en direct `current.temp` ; jusqu'à 5 jours. Les conditions HA standard sont associées aux icônes existantes et traduites.
 
 #### Formatage du champ `city` sur OpenWeatherMap
 OpenWeatherMap utilise le code pays ISO 3166 (et le code d'état à 2 lettres pour les États-Unis) :
@@ -405,6 +418,9 @@ Format du message (v1) :
 | `stack` | `true` : séries empilées dans l'ordre. `false` : superposées, la dernière au-dessus. |
 | `bands` | Plages de colonnes en fond, en indices `[from, to)`, par ex. heures pleines. |
 | `marks` | Ligne verticale pointillée au bord gauche de l'indice `at`, par ex. minuit. |
+| `min` | Bas de l'échelle (défaut `0`). `max` absent ou `<= min` = haut automatique. Avec une série en ligne, l'échelle automatique couvre les données plus 5 % (au moins 0,5) de chaque côté. |
+| `style` (par série) | `"bar"` (défaut) ou `"line"`. Les barres partent de la ligne zéro (négatif vers le bas). Les lignes (1 px, en escalier) sont dessinées par-dessus ; `null` = trou. |
+| `yaxis` | `true` : min et max affichés à gauche en police 3x5 (panneaux de 64 px de haut uniquement). |
 | couleurs | `"#RRGGBB"`. |
 
 Exemple Home Assistant (action d'automatisation publiant un message retained toutes les 15 minutes) :
@@ -419,6 +435,22 @@ Exemple Home Assistant (action d'automatisation publiant un message retained tou
           "series": [{"label": "AC", "color": "#2080FF",
                       "data": state_attr('sensor.ac_history', 'values')}]} | to_json }}
 ```
+
+### Moteur : `values` (valeurs du flux de données)
+| Champ | Type | Défaut | Description |
+| :--- | :--- | :--- | :--- |
+| `topic` | `String` | `arcadematrix/values/energy` | Topic complet du message sur le broker `data_mqtt`. |
+| `show_title` | `Boolean` | `true` | Ligne de titre en haut quand la mise en page le permet (1 à 3 tuiles). |
+
+1 à 4 tuiles de texte déjà formaté : le panneau ne calcule rien.
+
+```json
+{"v":1,"title":"HOME",
+ "tiles":[{"label":"DN","value":"76","unit":"°F","color":"#2060FF"},
+          {"label":"AC 24H","value":"17.0","unit":"h","color":"#FFB000","label_color":"#808080"}]}
+```
+
+1 à 3 tuiles se partagent la largeur (valeur aussi grande que possible, libellé au-dessus) ; 4 tuiles forment une grille 2x2 (libellé à gauche, valeur à droite, sans titre). Une valeur trop large perd d'abord son unité, puis est tronquée. Affiche `PAS DE DONNEES` avant le premier message.
 
 ---
 

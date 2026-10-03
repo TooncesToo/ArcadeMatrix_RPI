@@ -16,4 +16,5 @@ pub mod renderers;
 pub mod spotify;
 pub mod stock;
 pub mod sysinfo;
+pub mod values;
 pub mod weather;

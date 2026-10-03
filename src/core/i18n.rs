@@ -436,6 +436,80 @@ pub fn gnews_status_label(lang: Lang, status: GNewsStatus) -> &'static str {
 }
 
 // ----------------------------------------------------------------------------
+// 8. Home Assistant Weather Conditions
+// ----------------------------------------------------------------------------
+/// Short / long display labels for Home Assistant's standard weather
+/// conditions (layout-v2.md table). `None` for an unknown condition, which the
+/// caller shows as received.
+pub fn ha_weather_condition(lang: Lang, condition: &str) -> Option<(&'static str, &'static str)> {
+    let c = condition.trim().to_ascii_lowercase();
+    let labels = match (c.as_str(), lang) {
+        ("sunny", Lang::En) => ("Sunny", "Sunny"),
+        ("sunny", Lang::Fr) => ("Soleil", "Ensoleillé"),
+        ("sunny", Lang::Es) => ("Sol", "Soleado"),
+        ("clear-night", Lang::En) => ("Clear", "Clear"),
+        ("clear-night", Lang::Fr) => ("Clair", "Dégagé"),
+        ("clear-night", Lang::Es) => ("Despejado", "Despejado"),
+        ("partlycloudy", Lang::En) => ("Pt cloudy", "Partly cloudy"),
+        ("partlycloudy", Lang::Fr) => ("Nuageux", "Partiellement nuageux"),
+        ("partlycloudy", Lang::Es) => ("Nubes", "Parcialmente nublado"),
+        ("cloudy", Lang::En) => ("Cloudy", "Cloudy"),
+        ("cloudy", Lang::Fr) => ("Couvert", "Couvert"),
+        ("cloudy", Lang::Es) => ("Nublado", "Nublado"),
+        ("fog", Lang::En) => ("Fog", "Fog"),
+        ("fog", Lang::Fr) => ("Brouil.", "Brouillard"),
+        ("fog", Lang::Es) => ("Niebla", "Niebla"),
+        ("exceptional", Lang::En) => ("Unusual", "Unusual"),
+        ("exceptional", Lang::Fr) => ("Except.", "Exceptionnel"),
+        ("exceptional", Lang::Es) => ("Inusual", "Inusual"),
+        ("rainy", Lang::En) => ("Rain", "Rain"),
+        ("rainy", Lang::Fr) => ("Pluie", "Pluie"),
+        ("rainy", Lang::Es) => ("Lluvia", "Lluvia"),
+        ("pouring", Lang::En) => ("Hvy rain", "Heavy rain"),
+        ("pouring", Lang::Fr) => ("Averse", "Forte pluie"),
+        ("pouring", Lang::Es) => ("Aguacero", "Lluvia fuerte"),
+        ("lightning", Lang::En) => ("Storm", "Storm"),
+        ("lightning", Lang::Fr) => ("Orage", "Orage"),
+        ("lightning", Lang::Es) => ("Tormenta", "Tormenta"),
+        ("lightning-rainy", Lang::En) => ("Storm+rain", "Storm + rain"),
+        ("lightning-rainy", Lang::Fr) => ("Orage+pl.", "Orage et pluie"),
+        ("lightning-rainy", Lang::Es) => ("Torm.+lluv.", "Tormenta y lluvia"),
+        ("snowy", Lang::En) => ("Snow", "Snow"),
+        ("snowy", Lang::Fr) => ("Neige", "Neige"),
+        ("snowy", Lang::Es) => ("Nieve", "Nieve"),
+        ("snowy-rainy", Lang::En) => ("Sleet", "Sleet"),
+        ("snowy-rainy", Lang::Fr) => ("Neige fond.", "Neige fondue"),
+        ("snowy-rainy", Lang::Es) => ("Aguanieve", "Aguanieve"),
+        ("hail", Lang::En) => ("Hail", "Hail"),
+        ("hail", Lang::Fr) => ("Grêle", "Grêle"),
+        ("hail", Lang::Es) => ("Granizo", "Granizo"),
+        ("windy" | "windy-variant", Lang::En) => ("Windy", "Windy"),
+        ("windy" | "windy-variant", Lang::Fr) => ("Venteux", "Venteux"),
+        ("windy" | "windy-variant", Lang::Es) => ("Viento", "Ventoso"),
+        _ => return None,
+    };
+    Some(labels)
+}
+
+/// OpenWeatherMap icon code for a Home Assistant condition, so the existing
+/// weather icons are reused. Unknown conditions get "03d" (clouds).
+pub fn ha_weather_icon(condition: &str) -> &'static str {
+    match condition.trim().to_ascii_lowercase().as_str() {
+        "sunny" => "01d",
+        "clear-night" => "01n",
+        "partlycloudy" => "02d",
+        "cloudy" => "04d",
+        "fog" | "exceptional" => "50d",
+        "rainy" => "10d",
+        "pouring" => "09d",
+        "lightning" | "lightning-rainy" => "11d",
+        "snowy" | "snowy-rainy" | "hail" => "13d",
+        "windy" | "windy-variant" => "03d",
+        _ => "03d",
+    }
+}
+
+// ----------------------------------------------------------------------------
 // 7. Data Feed Labels (Graph engine)
 // ----------------------------------------------------------------------------
 /// Shown by data-driven engines (e.g. Graph) until their first payload arrives.
