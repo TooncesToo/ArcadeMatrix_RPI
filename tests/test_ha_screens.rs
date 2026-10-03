@@ -567,3 +567,37 @@ fn render_v2_previews() {
     }
     let _ = std::fs::remove_dir_all(&cfgdir);
 }
+
+/// Renders whatever payloads are saved in `HA_LIVE_DIR` (graph_*.json,
+/// values_*.json) next to them as PNGs.
+#[test]
+#[ignore]
+fn render_live_payloads() {
+    let Ok(dir) = std::env::var("HA_LIVE_DIR") else {
+        return;
+    };
+    for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+        let path = entry.path();
+        let name = path.file_stem().unwrap().to_string_lossy().to_string();
+        if path.extension().map(|e| e != "json").unwrap_or(true) {
+            continue;
+        }
+        let json = std::fs::read_to_string(&path).unwrap();
+        for (w, h) in [(128u32, 32u32), (256, 64)] {
+            let mut m = MockMatrix::new(w, h);
+            if name.starts_with("graph") {
+                render_graph(&mut m, parse_graph_payload(&json).as_ref(), true, "NO DATA");
+            } else if name.starts_with("values") {
+                render_values(
+                    &mut m,
+                    parse_values_payload(&json).as_ref(),
+                    true,
+                    "NO DATA",
+                );
+            } else {
+                continue;
+            }
+            save(&m, &dir, &name);
+        }
+    }
+}
