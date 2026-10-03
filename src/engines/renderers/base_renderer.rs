@@ -2,6 +2,7 @@ use crate::core::matrix::MatrixBackend;
 use crate::core::theme::get_theme_info;
 use bdf_parser::BdfFont;
 use rusttype::{Font, Scale};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::OnceLock;
 
 // Embedded fallback font (always available, zero-cost after first init)
@@ -176,6 +177,8 @@ pub struct BaseRenderer {
     /// Loaded BDF font
     custom_bdf_font: Option<BdfFont>,
 }
+
+static GLOW: AtomicU32 = AtomicU32::new(0);
 
 impl BaseRenderer {
     /// Uses the embedded PressStart2P font.
@@ -519,6 +522,65 @@ impl BaseRenderer {
         }
     }
 
+    /// Glow outline, matching the ESP32 firmware's `clock_glow` setting.
+    ///
+    /// Mode 0 leaves a face exactly as it drew before: whatever it passed as `secondary` is the
+    /// halo. Mode 1 is the Matrix face's recipe, where the digit's own colour becomes a one pixel
+    /// outline at full strength and the centre is drawn near-white, which is what makes the digits
+    /// read as outlined rather than shadowed. Mode 2 takes a colour of its own for the outline and
+    /// leaves the centre alone.
+    pub fn set_glow(mode: u8, color: (u8, u8, u8)) {
+        let packed = ((mode as u32) << 24)
+            | ((color.0 as u32) << 16)
+            | ((color.1 as u32) << 8)
+            | (color.2 as u32);
+        GLOW.store(packed, Ordering::Relaxed);
+    }
+
+    /// The glow an instance configured: the mode (0 off, 1 neon, 2 a colour of its own) and the
+    /// colour mode 2 uses. For a face that needs the mode itself rather than the resolved ring.
+    pub fn glow_setting() -> (u8, (u8, u8, u8)) {
+        let packed = GLOW.load(Ordering::Relaxed);
+        (
+            (packed >> 24) as u8,
+            (
+                ((packed >> 16) & 0xFF) as u8,
+                ((packed >> 8) & 0xFF) as u8,
+                (packed & 0xFF) as u8,
+            ),
+        )
+    }
+
+    fn paled(c: (u8, u8, u8)) -> (u8, u8, u8) {
+        let up = |v: u8| -> u8 { v.saturating_add(((255 - v) as u32 * 3 / 4) as u8) };
+        (up(c.0), up(c.1), up(c.2))
+    }
+
+    /// Returns (halo, core, halo_offset). `halo_offset` is 1 for a glow so the ring stays tight,
+    /// and the face's own `size`-wide ring when no glow is configured. Public so a face that draws
+    /// its own text - the Pac-Man parade clips its digits at Pac-Man's mouth - resolves the outline
+    /// exactly as draw_text_at does, rather than ending up with the glow on only some of them.
+    pub fn glow_for(
+        primary: (u8, u8, u8),
+        secondary: (u8, u8, u8),
+        size_offset: i32,
+    ) -> ((u8, u8, u8), (u8, u8, u8), i32) {
+        let packed = GLOW.load(Ordering::Relaxed);
+        match (packed >> 24) as u8 {
+            1 => (primary, Self::paled(primary), 1),
+            2 => (
+                (
+                    ((packed >> 16) & 0xFF) as u8,
+                    ((packed >> 8) & 0xFF) as u8,
+                    (packed & 0xFF) as u8,
+                ),
+                primary,
+                1,
+            ),
+            _ => (secondary, primary, size_offset),
+        }
+    }
+
     pub fn draw_text_at(
         matrix: &mut dyn MatrixBackend,
         text: &str,
@@ -531,7 +593,7 @@ impl BaseRenderer {
     ) {
         let (pixels_by_char, _, _) = font.get_pixel_map(text, size);
 
-        let offset = (size as i32).max(1);
+        let (secondary, primary, offset) = Self::glow_for(primary, secondary, (size as i32).max(1));
 
         for char_pixels in &pixels_by_char {
             for &(gx, gy) in char_pixels {
@@ -570,7 +632,7 @@ impl BaseRenderer {
         secondary: (u8, u8, u8),
     ) {
         let (pixels_by_char, _, _) = font.get_pixel_map(text, size);
-        let offset = (size as i32).max(1);
+        let (secondary, primary, offset) = Self::glow_for(primary, secondary, (size as i32).max(1));
 
         if secondary != (0, 0, 0) && secondary != primary {
             for char_pixels in &pixels_by_char {
