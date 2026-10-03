@@ -8,10 +8,10 @@
     "force_single_buffer": false,
     "color_depth": 24,
     "rgb_sequence": "RGB",
-    "limit_refresh_rate_hz": 90,
+    "limit_refresh_rate_hz": 0,
     "driver_chip": "SHIFTREG",
-    "clk_phase": true,
-    "latch_blanking": 4,
+    "clk_phase": false,
+    "latch_blanking": 0,
     "row_address_mode": 0,
     "matrix_power": true,
     "multiplexing": 0,
@@ -43,7 +43,7 @@
   "system": {
     "timezone": "CET-1CEST,M3.5.0,M10.5.0/3",
     "format_24h": true,
-    "lang": "fr",
+    "lang": "en",
     "temp_unit": "C",
     "night_mode_enabled": false,
     "turn_off_at": "23:00",
@@ -54,181 +54,8 @@
     "idle_fighter_interval": 10,
     "idle_fighter_speed": 100
   },
-  "instances": [
-    {
-      "instance_id": "default_dashboard",
-      "engine_id": "dashboard",
-      "config": {
-        "clock_mode": "1",
-        "show_world_clock": "true",
-        "offset_y": "0",
-        "show_markets": "true",
-        "weather_city": "Paris, FR",
-        "format_24h": "system",
-        "world_clocks": "NYC,TYO,LON",
-        "show_sysinfo": "true",
-        "lang": "system",
-        "show_clock": "true",
-        "show_date": "true",
-        "show_seconds": "true",
-        "tracked_markets": "BTC,ETH,SOL,NVDA",
-        "theme": "0",
-        "temp_unit": "system",
-        "smooth_seconds": "true",
-        "timezone": "system",
-        "show_weather": "true",
-        "offset_x": "0"
-      }
-    },
-    {
-      "instance_id": "default_clock",
-      "engine_id": "clock",
-      "config": {
-        "color_1": "#FFFFFF",
-        "timezone": "Europe/Paris",
-        "format": "%H:%M:%S",
-        "color_2": "#FFFFFF",
-        "offset_x": "0",
-        "offset_y": "0",
-        "font": "PressStart2P.ttf",
-        "theme": "0",
-        "size": "2"
-      }
-    },
-    {
-      "instance_id": "default_weather",
-      "engine_id": "weather",
-      "config": {
-        "offset_x": "0",
-        "city": "Paris, FR",
-        "units": "metric",
-        "api_key": "",
-        "offset_y": "0"
-      }
-    },
-    {
-      "instance_id": "default_crypto",
-      "engine_id": "crypto",
-      "config": {
-        "page_seconds": "5",
-        "cache_ttl_min": "1",
-        "chart_timeframe": "daily",
-        "currency": "USD",
-        "show_chart": "true",
-        "symbols": "BTC,ETH"
-      }
-    },
-    {
-      "instance_id": "default_stock",
-      "engine_id": "stock",
-      "config": {
-        "cache_ttl_min": "1",
-        "page_seconds": "5",
-        "symbols": "AAPL,TSLA,NVDA",
-        "currency": "USD",
-        "show_chart": "true",
-        "chart_timeframe": "daily"
-      }
-    },
-    {
-      "instance_id": "default_gifs",
-      "engine_id": "gifs",
-      "config": {
-        "playlists": ""
-      }
-    },
-    {
-      "instance_id": "default_sysinfo",
-      "engine_id": "system_info",
-      "config": {
-        "offset_x": "0",
-        "theme": "0",
-        "temp_unit": "C",
-        "show_cpu": "true",
-        "show_ram": "true",
-        "show_temp": "true",
-        "show_uptime": "true",
-        "offset_y": "0"
-      }
-    },
-    {
-      "instance_id": "default_gnews",
-      "engine_id": "gnews",
-      "config": {
-        "force_refresh": "false",
-        "keywords": "",
-        "show_beacon": "true",
-        "show_progress_dots": "true",
-        "requests_per_day": "10",
-        "display_mode": "smooth_scroll",
-        "api_key": "",
-        "lang": "auto",
-        "scroll_pause_end_ms": "1000",
-        "show_source": "true",
-        "show_category_badge": "true",
-        "scroll_speed": "3",
-        "scroll_pause_start_ms": "1200",
-        "max_articles": "5",
-        "show_time_ago": "true",
-        "country": "auto",
-        "article_duration_sec": "12",
-        "theme": "category_dynamic",
-        "cache_ttl_min": "30",
-        "category": "technology"
-      }
-    }
-  ],
-  "rotation": [
-    {
-      "instance_id": "default_dashboard",
-      "duration_sec": 30,
-      "overlays": {
-        "fighter": true
-      }
-    },
-    {
-      "instance_id": "default_clock",
-      "duration_sec": 20,
-      "overlays": {
-        "fighter": true
-      }
-    },
-    {
-      "instance_id": "default_weather",
-      "duration_sec": 15,
-      "overlays": {
-        "fighter": true
-      }
-    },
-    {
-      "instance_id": "default_crypto",
-      "duration_sec": 15,
-      "overlays": {
-        "fighter": true
-      }
-    },
-    {
-      "instance_id": "default_stock",
-      "duration_sec": 15,
-      "overlays": {
-        "fighter": true
-      }
-    },
-    {
-      "instance_id": "default_gifs",
-      "duration_sec": 30,
-      "overlays": {
-        "fighter": true
-      }
-    },
-    {
-      "instance_id": "default_gnews",
-      "duration_sec": 15,
-      "overlays": {
-        "fighter": true
-      }
-    }
-  ],
+  "instances": [],
+  "rotation": [],
   "api_auth_enabled": false,
   "api_token": "9101d2ff5928c93107e537aa3c07a282"
 }
