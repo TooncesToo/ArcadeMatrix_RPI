@@ -1053,7 +1053,8 @@ pub fn ha_forecasts(
             .wind
             .map(|v| format!("{}{}", v.round() as i64, w.wind_unit.trim()));
         let line2 = match (hum, wind) {
-            (Some(h), Some(v)) => format!("{} {}", h, v),
+            // Two spaces so "34%  5mph" doesn't read as one value.
+            (Some(h), Some(v)) => format!("{}  {}", h, v),
             (Some(h), None) => h,
             (None, Some(v)) => v,
             (None, None) => cond_label,
