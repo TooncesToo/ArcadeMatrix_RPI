@@ -491,6 +491,15 @@ pub fn ha_weather_condition(lang: Lang, condition: &str) -> Option<(&'static str
     Some(labels)
 }
 
+/// Day label of the Home Assistant weather "NOW" page (live station reading).
+pub fn weather_now_label(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Fr => "ACTU.",
+        Lang::En => "NOW",
+        Lang::Es => "AHORA",
+    }
+}
+
 /// OpenWeatherMap icon code for a Home Assistant condition, so the existing
 /// weather icons are reused. Unknown conditions get "03d" (clouds).
 pub fn ha_weather_icon(condition: &str) -> &'static str {

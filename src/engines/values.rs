@@ -109,11 +109,17 @@ fn glcd_width(chars: usize, scale: i32) -> i32 {
     }
 }
 
+/// Space between value and unit: one pixel more than the value's own letter
+/// spacing, so "17.0h" doesn't read as one word.
+fn unit_gap(fit: &ValueFit) -> i32 {
+    fit.scale + 1
+}
+
 /// Total width of value (+ gap + unit) for a fit.
 fn line_width(value_chars: usize, unit: &str, fit: &ValueFit) -> i32 {
     let mut w = glcd_width(value_chars, fit.scale);
     if fit.show_unit && !unit.is_empty() {
-        w += fit.scale + fit.unit_font().width(unit);
+        w += unit_gap(fit) + fit.unit_font().width(unit);
     }
     w
 }
@@ -170,7 +176,7 @@ fn draw_value_line(m: &mut dyn MatrixBackend, t: &ValueTile, fit: &ValueFit, x: 
     draw_text_scaled(m, v, x, y, 0, w, 0, h, fit.scale, t.color);
     if fit.show_unit && !t.unit.is_empty() {
         let uf = fit.unit_font();
-        let ux = x + glcd_width(fit.chars, fit.scale) + fit.scale;
+        let ux = x + glcd_width(fit.chars, fit.scale) + unit_gap(fit);
         let uy = y + fit.value_h() - uf.height();
         uf.draw(m, &t.unit, ux, uy, 0, w, t.label_color);
     }
@@ -253,7 +259,8 @@ pub fn render_values(
 
     for (i, t) in d.tiles.iter().take(n).enumerate() {
         let cell_x = (i as i32 * w) / n as i32;
-        let cell_end = ((i as i32 + 1) * w) / n as i32;
+        // 4 px gutter between columns: 2 px off each neighbouring cell.
+        let cell_end = ((i as i32 + 1) * w) / n as i32 - if i + 1 < n { 2 } else { 0 };
         let ix = cell_x + if i > 0 { 2 } else { 0 };
 
         let area_top = if t.label.is_empty() {
