@@ -15,6 +15,7 @@ Le système de configuration repose exclusivement sur un unique fichier `config.
   "matrix": { ... },
   "wifi": { ... },
   "mqtt": { ... },
+  "data_mqtt": { ... },
   "system": { ... },
   "instances": [ ... ],
   "rotation": [ ... ],
@@ -102,6 +103,24 @@ Le démon de synchronisation peut être installé sur la console (Recalbox, Bato
 > Pour Batocera, la version **v33 ou supérieure** est requise pour le changement dynamique de marquee pendant la navigation (hooks `game-selected` et `system-selected`). Batocera v32 et versions antérieures ne déclenchent que les événements de lancement/arrêt de jeu. Recalbox est supporté sur toutes ses versions.
 
 ---
+
+## 5b. Le bloc `"data_mqtt"` (flux de données : Home Assistant, Node-RED...)
+
+Une seconde connexion MQTT, indépendante du bloc `"mqtt"` ci-dessus. Elle **ne prend jamais la main sur l'affichage** : elle garde seulement le dernier message de chaque topic sous `<topic_prefix>/#` pour que des moteurs comme `graph` puissent le dessiner. Idéal pour afficher des données Home Assistant (énergie, historique de climatisation, températures) sans toucher aux marquees.
+
+| Clé | Type | Description |
+| :--- | :--- | :--- |
+| `enabled` | `bool` | Active le client du flux de données (défaut `false`). |
+| `broker` | `String` | Hôte ou IP du broker, par ex. l'add-on Mosquitto de Home Assistant. Vide = désactivé. |
+| `port` | `int` | Port du broker (défaut `1883`). |
+| `user` | `String` | Utilisateur du broker (optionnel). |
+| `pass` | `String` | Mot de passe du broker (optionnel). |
+| `topic_prefix` | `String` | Le client s'abonne à `<topic_prefix>/#` (défaut `arcadematrix`). |
+
+- L'identifiant client MQTT est `<hostname>-data`, plusieurs panneaux peuvent donc partager un broker.
+- Jusqu'à 8 topics sont conservés, 4096 octets par message (au-delà, le message est ignoré). Publiez en **retained** pour que la valeur soit là dès le redémarrage.
+- `GET /api/stats` indique `data_mqtt_connected` et `data_mqtt_topics`.
+- Modifier ce bloc redémarre l'application, comme pour le bloc `"mqtt"`.
 
 ## 6. Sécurité de l'API (`api_auth_enabled` / `api_token`)
 
@@ -349,6 +368,57 @@ OpenWeatherMap utilise le code pays ISO 3166 (et le code d'état à 2 lettres po
 | Champ | Type | Défaut | Description |
 | :--- | :--- | :--- | :--- |
 | *(auto)* | `None` | — | Moteur interne de synchronisation des marquees Pixelcade / Recalbox / Batocera reçus via MQTT ou Webhook. |
+
+### Moteur : `graph` (graphique du flux de données)
+| Champ | Type | Défaut | Description |
+| :--- | :--- | :--- | :--- |
+| `topic` | `String` | `arcadematrix/graph/ac` | Topic complet du graphique sur le broker `data_mqtt`. |
+| `show_header` | `Boolean` | `true` | Titre à gauche et résumé à droite au-dessus du graphique. |
+
+Dessine des barres (empilées ou superposées) à partir d'un JSON. 128x32 : en-tête 5x7 sur les lignes 0-6, graphique sur les lignes 8-31. 256x64 : en-tête double taille, graphique sur les lignes 15-63 avec une ligne de repère à 50 %. Affiche `PAS DE DONNEES` jusqu'au premier message.
+
+Format du message (v1) :
+
+```json
+{
+  "v": 1,
+  "title": "AC 24H",
+  "summary": "12.3kWh",
+  "unit": "kW",
+  "slots": 96,
+  "max": 6,
+  "stack": true,
+  "series": [
+    {"label": "UP", "color": "#2080FF", "data": [0.0, 1.25, 2.4]},
+    {"label": "DN", "color": "#00D0A0", "data": [0.0, 0.8, 1.1]}
+  ],
+  "bands": [{"from": 60, "to": 72, "color": "#301800"}],
+  "marks": [{"at": 28, "color": "#404040"}]
+}
+```
+
+| Clé | Description |
+| :--- | :--- |
+| `slots` | Nombre de positions en x (défaut : la plus longue série). Les données sont **alignées à droite** : la dernière valeur est la plus récente. |
+| `series` | Jusqu'à 4 séries de 288 nombres maximum. `null` ou non-nombre = `0`. |
+| `max` | Haut de l'échelle. Absent ou `<= 0` = automatique (plus haut total empilé). |
+| `stack` | `true` : séries empilées dans l'ordre. `false` : superposées, la dernière au-dessus. |
+| `bands` | Plages de colonnes en fond, en indices `[from, to)`, par ex. heures pleines. |
+| `marks` | Ligne verticale pointillée au bord gauche de l'indice `at`, par ex. minuit. |
+| couleurs | `"#RRGGBB"`. |
+
+Exemple Home Assistant (action d'automatisation publiant un message retained toutes les 15 minutes) :
+
+```yaml
+- action: mqtt.publish
+  data:
+    topic: arcadematrix/graph/ac
+    retain: true
+    payload: >-
+      {{ {"v": 1, "title": "AC 24H", "unit": "kW", "slots": 96, "max": 6,
+          "series": [{"label": "AC", "color": "#2080FF",
+                      "data": state_attr('sensor.ac_history', 'values')}]} | to_json }}
+```
 
 ---
 

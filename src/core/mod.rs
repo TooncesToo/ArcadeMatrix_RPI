@@ -2,6 +2,8 @@ pub mod arbiter;
 pub mod build_info;
 pub mod config;
 pub mod config_sanitizer;
+pub mod data_feed;
+pub mod data_mqtt;
 pub mod dmd_cache;
 pub mod engine_contract;
 pub mod i18n;

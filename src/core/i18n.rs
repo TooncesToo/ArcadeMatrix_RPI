@@ -435,6 +435,18 @@ pub fn gnews_status_label(lang: Lang, status: GNewsStatus) -> &'static str {
     }
 }
 
+// ----------------------------------------------------------------------------
+// 7. Data Feed Labels (Graph engine)
+// ----------------------------------------------------------------------------
+/// Shown by data-driven engines (e.g. Graph) until their first payload arrives.
+pub fn no_data_label(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Fr => "PAS DE DONNEES",
+        Lang::En => "NO DATA",
+        Lang::Es => "SIN DATOS",
+    }
+}
+
 // ============================================================================
 // Unit Tests
 // ============================================================================

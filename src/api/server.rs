@@ -59,6 +59,7 @@ async fn get_system(req: HttpRequest, data: web::Data<AppState>) -> impl Respond
         "system": s.system,
         "matrix": s.matrix,
         "mqtt": s.mqtt,
+        "data_mqtt": s.data_mqtt,
         "wifi": s.wifi,
         "api_auth_enabled": s.api_auth_enabled,
         "api_token": s.api_token
@@ -78,6 +79,7 @@ async fn post_system(
     // Snapshot the fields that require a hardware/service restart to take effect.
     let prev_matrix = serde_json::to_value(&s.matrix).ok();
     let prev_mqtt = serde_json::to_value(&s.mqtt).ok();
+    let prev_data_mqtt = s.data_mqtt.clone();
     let prev_disable_wifi = s.wifi.disable_internal;
     // Simplified update (normally you'd merge the fields)
     if let Some(sys) = body.get("system") {
@@ -93,6 +95,11 @@ async fn post_system(
     if let Some(mq) = body.get("mqtt") {
         if let Ok(mq_val) = serde_json::from_value(mq.clone()) {
             s.mqtt = mq_val;
+        }
+    }
+    if let Some(dm) = body.get("data_mqtt") {
+        if let Ok(dm_val) = serde_json::from_value(dm.clone()) {
+            s.data_mqtt = dm_val;
         }
     }
     if let Some(wf) = body.get("wifi") {
@@ -205,8 +212,10 @@ async fn post_system(
         }
     }
     let new_mqtt = serde_json::to_value(&s.mqtt).ok();
-    let needs_reload =
-        hw_matrix_changed || prev_mqtt != new_mqtt || prev_disable_wifi != s.wifi.disable_internal;
+    let needs_reload = hw_matrix_changed
+        || prev_mqtt != new_mqtt
+        || prev_data_mqtt != s.data_mqtt
+        || prev_disable_wifi != s.wifi.disable_internal;
     drop(s);
     data.config.save();
     if needs_reload {
@@ -519,7 +528,9 @@ async fn get_stats(req: HttpRequest, data: web::Data<AppState>) -> impl Responde
         "memory_used": stats.1,
         "memory_total": stats.2,
         "temperature_c": stats.3,
-        "disk_free_gb": (stats.4 * 10.0).round() / 10.0
+        "disk_free_gb": (stats.4 * 10.0).round() / 10.0,
+        "data_mqtt_connected": crate::core::data_feed::data_feed().is_connected(),
+        "data_mqtt_topics": crate::core::data_feed::data_feed().topic_count()
     }))
 }
 
