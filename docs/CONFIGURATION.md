@@ -15,6 +15,7 @@ The configuration system relies exclusively on a single `config.json` file locat
   "matrix": { ... },
   "wifi": { ... },
   "mqtt": { ... },
+  "data_mqtt": { ... },
   "system": { ... },
   "instances": [ ... ],
   "rotation": [ ... ],
@@ -102,6 +103,24 @@ The sync daemon can be installed on the console (Recalbox, Batocera, RetroPie) o
 > For Batocera, version **v33 or newer** is required for dynamic marquee browsing (`game-selected` and `system-selected` hooks). Batocera v32 and earlier only trigger game launch/stop events. Recalbox is supported on all versions.
 
 ---
+
+## 5b. The `"data_mqtt"` Block (Data Feed: Home Assistant, Node-RED...)
+
+A second MQTT connection, independent of the `"mqtt"` block above. It **never takes over the display**: it only keeps the last payload of every topic under `<topic_prefix>/#` so that engines such as `graph` can draw it. Use it to show Home Assistant data (energy, cooling history, temperatures) on the matrix without touching the marquee setup.
+
+| Key | Type | Description |
+| :--- | :--- | :--- |
+| `enabled` | `bool` | Enable the data feed client (default `false`). |
+| `broker` | `String` | Broker host or IP, e.g. the Home Assistant Mosquitto add-on. Empty = off. |
+| `port` | `int` | Broker port (default `1883`). |
+| `user` | `String` | Broker username (optional). |
+| `pass` | `String` | Broker password (optional). |
+| `topic_prefix` | `String` | The client subscribes to `<topic_prefix>/#` (default `arcadematrix`). |
+
+- The MQTT client id is `<hostname>-data`, so several signs can share one broker.
+- Up to 8 topics are kept, 4096 bytes per payload (larger payloads are dropped). Publish **retained** so the value is there right after a restart.
+- `GET /api/stats` reports `data_mqtt_connected` and `data_mqtt_topics`.
+- Changing this block restarts the application, like the `"mqtt"` block.
 
 ## 6. API Security (`api_auth_enabled` / `api_token`)
 
@@ -353,6 +372,57 @@ OpenWeatherMap uses the ISO 3166 country code (and 2-letter state code for the U
 | Field | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | *(auto)* | `None` | — | Internal Pixelcade/Recalbox/Batocera marquee sync engine. Displays scraped game box-art and marquees received via MQTT / Webhook. |
+
+### Engine: `graph` (Data Feed Graph)
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `topic` | `String` | `arcadematrix/graph/ac` | Full topic of the graph payload on the `data_mqtt` broker. |
+| `show_header` | `Boolean` | `true` | Title on the left and summary on the right above the plot. |
+
+Draws bars (stacked or overlaid) from a JSON payload. 128x32: 5x7 header on rows 0-6, plot on rows 8-31. 256x64: double-size header, plot on rows 15-63 with a dim 50 % gridline. Shows `NO DATA` until the first payload arrives.
+
+Payload (v1):
+
+```json
+{
+  "v": 1,
+  "title": "AC 24H",
+  "summary": "12.3kWh",
+  "unit": "kW",
+  "slots": 96,
+  "max": 6,
+  "stack": true,
+  "series": [
+    {"label": "UP", "color": "#2080FF", "data": [0.0, 1.25, 2.4]},
+    {"label": "DN", "color": "#00D0A0", "data": [0.0, 0.8, 1.1]}
+  ],
+  "bands": [{"from": 60, "to": 72, "color": "#301800"}],
+  "marks": [{"at": 28, "color": "#404040"}]
+}
+```
+
+| Key | Description |
+| :--- | :--- |
+| `slots` | Number of x positions (default: longest series). Data is **right-aligned**: the last value is the newest, drawn at the right edge. |
+| `series` | Up to 4 series of up to 288 numbers. `null` or non-numbers count as `0`. |
+| `max` | Top of the y scale. Absent or `<= 0` = automatic (highest stacked total). |
+| `stack` | `true`: series stacked bottom-up in order. `false`: overlaid, later series on top. |
+| `bands` | Background column ranges in slot indices `[from, to)`, e.g. on-peak hours. |
+| `marks` | Dotted vertical line at the left edge of slot `at`, e.g. midnight. |
+| colors | `"#RRGGBB"`. |
+
+Home Assistant example (an automation action publishing a retained payload every 15 minutes):
+
+```yaml
+- action: mqtt.publish
+  data:
+    topic: arcadematrix/graph/ac
+    retain: true
+    payload: >-
+      {{ {"v": 1, "title": "AC 24H", "unit": "kW", "slots": 96, "max": 6,
+          "series": [{"label": "AC", "color": "#2080FF",
+                      "data": state_attr('sensor.ac_history', 'values')}]} | to_json }}
+```
 
 ---
 

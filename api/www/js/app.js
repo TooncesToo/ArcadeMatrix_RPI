@@ -635,6 +635,39 @@ function initNetworkSettings() {
     });
   }
 
+  // Data Feed MQTT: only show the connection fields while the feed is enabled.
+  const dataMqttEnable = document.getElementById('hw-data-mqtt-enable');
+  if (dataMqttEnable) {
+    dataMqttEnable.addEventListener('change', updateDataMqttVisibility);
+  }
+
+  const btnSaveDataMqtt = document.getElementById('btn-save-data-mqtt');
+  if (btnSaveDataMqtt) {
+    btnSaveDataMqtt.addEventListener('click', async () => {
+      const base = (window.__sysConfig && window.__sysConfig.data_mqtt) ? { ...window.__sysConfig.data_mqtt } : {};
+      const data_mqtt = {
+        ...base,
+        enabled: document.getElementById('hw-data-mqtt-enable').value === '1',
+        broker: document.getElementById('hw-data-mqtt-broker').value.trim(),
+        port: parseInt(document.getElementById('hw-data-mqtt-port').value, 10) || 1883,
+        user: document.getElementById('hw-data-mqtt-user').value,
+        pass: document.getElementById('hw-data-mqtt-pass').value,
+        topic_prefix: document.getElementById('hw-data-mqtt-prefix').value.trim() || 'arcadematrix',
+      };
+      try {
+        const res = await API.post('/api/system', { data_mqtt });
+        if (window.__sysConfig) window.__sysConfig.data_mqtt = data_mqtt;
+        if (res && res.status === 'rebooting') {
+          window.showToast('Data Feed Settings Saved! Restarting...', 'info');
+        } else {
+          window.showToast('Data Feed Settings Saved!', 'success');
+        }
+      } catch (e) {
+        window.showToast('Failed to save Data Feed Settings', 'error');
+      }
+    });
+  }
+
   const btnSaveApi = document.getElementById('btn-save-api');
   if (btnSaveApi) {
     btnSaveApi.addEventListener('click', async () => {
@@ -648,6 +681,12 @@ function initNetworkSettings() {
       }
     });
   }
+}
+
+function updateDataMqttVisibility() {
+  const sel = document.getElementById('hw-data-mqtt-enable');
+  const fields = document.getElementById('data-mqtt-fields');
+  if (sel && fields) fields.hidden = sel.value !== '1';
 }
 
 async function initSettings() {
@@ -769,6 +808,16 @@ async function initSettings() {
     setVal('hw-mqtt-port', mqtt.port);
     setVal('hw-mqtt-user', mqtt.user || '');
     setVal('hw-mqtt-pass', mqtt.pass || '');
+
+    // Data Feed MQTT (nested data_mqtt.*)
+    const dataMqtt = cfg.data_mqtt || {};
+    setVal('hw-data-mqtt-enable', dataMqtt.enabled ? '1' : '0');
+    setVal('hw-data-mqtt-broker', dataMqtt.broker || '');
+    setVal('hw-data-mqtt-port', dataMqtt.port ?? 1883);
+    setVal('hw-data-mqtt-user', dataMqtt.user || '');
+    setVal('hw-data-mqtt-pass', dataMqtt.pass || '');
+    setVal('hw-data-mqtt-prefix', dataMqtt.topic_prefix || 'arcadematrix');
+    updateDataMqttVisibility();
 
     // API auth (top-level)
     setVal('hw-api-auth', cfg.api_auth_enabled ? 'true' : 'false');

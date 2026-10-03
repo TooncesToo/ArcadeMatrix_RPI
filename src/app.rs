@@ -189,6 +189,9 @@ impl ArcadeMatrixApp {
         // Start MQTT client background worker
         crate::engines::frontend_sync::start_mqtt_client(Arc::clone(&self.config));
 
+        // Start the data feed MQTT client (Home Assistant etc.), independent of the above.
+        crate::core::data_mqtt::start_data_mqtt_client(Arc::clone(&self.config));
+
         // Graceful shutdown flag, shared with the render loop.
         let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
 

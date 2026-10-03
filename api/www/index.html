@@ -625,6 +625,51 @@
             <pre id="ssh-log-output" class="input" style="display: none; max-height: 200px; overflow-y: auto; font-size: 12px; background: rgba(0,0,0,0.2); margin-top: 1rem; color: #fff; white-space: pre-wrap;"></pre>
           </div>
           
+          <!-- Data Feed MQTT: a second, display-free connection for Home Assistant / Node-RED data -->
+          <div class="card glass shadow" style="margin-bottom: 2rem;">
+            <h3 data-i18n="data_mqtt_title">Data Feed MQTT (Home Assistant)</h3>
+            <p class="text-muted" style="font-size: 0.9em;" data-i18n="data_mqtt_desc">A separate connection that only receives data for screens such as Graph. It does not change the MQTT marquee settings above.</p>
+            <div class="form-grid">
+              <div class="form-group">
+                <label data-i18n="data_mqtt_enable">Enable Data Feed</label>
+                <select id="hw-data-mqtt-enable" class="input">
+                  <option value="0" data-i18n="mqtt_opt_disabled">Disabled</option>
+                  <option value="1" data-i18n="mqtt_opt_enabled">Enabled</option>
+                </select>
+              </div>
+            </div>
+            <div id="data-mqtt-fields">
+              <div class="form-grid">
+                <div class="form-group">
+                  <label data-i18n="mqtt_broker">Broker IP</label>
+                  <input type="text" id="hw-data-mqtt-broker" class="input" placeholder="192.168.1.10">
+                </div>
+                <div class="form-group">
+                  <label data-i18n="mqtt_port">Port</label>
+                  <input type="number" id="hw-data-mqtt-port" class="input" value="1883">
+                </div>
+              </div>
+              <div class="form-grid" style="margin-top: 1rem;">
+                <div class="form-group">
+                  <label data-i18n="mqtt_user">Username</label>
+                  <input type="text" id="hw-data-mqtt-user" class="input" placeholder="Optional">
+                </div>
+                <div class="form-group">
+                  <label data-i18n="mqtt_pass">Password</label>
+                  <input type="password" id="hw-data-mqtt-pass" class="input" placeholder="Optional">
+                </div>
+              </div>
+              <div class="form-grid" style="margin-top: 1rem;">
+                <div class="form-group">
+                  <label data-i18n="data_mqtt_prefix">Topic Prefix</label>
+                  <input type="text" id="hw-data-mqtt-prefix" class="input" placeholder="arcadematrix">
+                </div>
+              </div>
+              <p class="text-muted" style="font-size: 0.85em; margin-top: 0.75rem;" data-i18n="data_mqtt_help">Publish retained JSON to &lt;prefix&gt;/graph/... from Home Assistant, then add a Graph screen with that topic. See docs/CONFIGURATION.md.</p>
+            </div>
+            <button id="btn-save-data-mqtt" class="btn btn-primary" style="margin-top: 1rem; width: 100%;" data-i18n="data_mqtt_save_btn">Save Data Feed Settings</button>
+          </div>
+
           <div class="card glass shadow">
             <h3 data-i18n="api_auth_title">API Authentication</h3>
             <div class="form-grid">

@@ -152,7 +152,7 @@ paths:
   /api/system:
     get:
       tags: [System]
-      summary: Get system, matrix, wifi, mqtt settings
+      summary: Get system, matrix, wifi, mqtt, data_mqtt settings
       responses:
         '200':
           description: Grouped configuration blocks
@@ -167,6 +167,8 @@ paths:
                     $ref: '#/components/schemas/MatrixConfig'
                   mqtt:
                     $ref: '#/components/schemas/MqttConfig'
+                  data_mqtt:
+                    $ref: '#/components/schemas/DataMqttConfig'
                   wifi:
                     $ref: '#/components/schemas/WifiConfig'
                   api_auth_enabled:
@@ -179,10 +181,11 @@ paths:
       tags: [System]
       summary: Update system settings (partial merge)
       description: >
-        Any subset of `system`, `matrix`, `mqtt`, `wifi`, plus the top-level
+        Any subset of `system`, `matrix`, `mqtt`, `data_mqtt`, `wifi`, plus the top-level
         `api_auth_enabled` / `api_token` may be sent. `brightness_limit` (alias
         `brightness`, 0-100) is applied live without a restart. Changes to matrix
-        parameters or the Wi-Fi radio state flag a render-loop reload.
+        parameters, the MQTT / data MQTT blocks or the Wi-Fi radio state flag a
+        render-loop reload.
       requestBody:
         required: true
         content:
@@ -196,6 +199,8 @@ paths:
                   $ref: '#/components/schemas/MatrixConfig'
                 mqtt:
                   $ref: '#/components/schemas/MqttConfig'
+                data_mqtt:
+                  $ref: '#/components/schemas/DataMqttConfig'
                 wifi:
                   $ref: '#/components/schemas/WifiConfig'
                 api_auth_enabled:
@@ -248,6 +253,12 @@ paths:
                     type: number
                   disk_free_gb:
                     type: number
+                  data_mqtt_connected:
+                    type: boolean
+                    description: Data feed MQTT client currently connected
+                  data_mqtt_topics:
+                    type: integer
+                    description: Number of data feed topics held (max 8)
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -1519,3 +1530,23 @@ components:
           type: string
         allow_overlay:
           type: boolean
+    DataMqttConfig:
+      type: object
+      description: Data feed MQTT client (Home Assistant etc.) used by the graph engine. Never drives the display itself.
+      properties:
+        enabled:
+          type: boolean
+        broker:
+          type: string
+          description: Broker host or IP; empty disables the client.
+        port:
+          type: integer
+          default: 1883
+        user:
+          type: string
+        pass:
+          type: string
+        topic_prefix:
+          type: string
+          default: arcadematrix
+          description: The client subscribes to `<topic_prefix>/#`.

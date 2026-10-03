@@ -8,6 +8,7 @@ pub mod frontend_sync;
 pub mod gif;
 pub mod gnews;
 pub mod google_cast;
+pub mod graph;
 pub mod icons;
 pub mod marquee;
 pub mod message;
