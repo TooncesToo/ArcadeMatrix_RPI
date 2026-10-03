@@ -325,7 +325,7 @@ fn weather_payload_to_day_forecasts() {
     assert!(f[0].is_now);
     assert_eq!(f[0].label, "NOW");
     assert_eq!(f[0].temp_min, "75°F");
-    assert_eq!(f[0].temp_max, "47% 7mph");
+    assert_eq!(f[0].temp_max, "47%  7mph");
     assert_eq!(f[0].icon, "01n"); // current.condition = clear-night
     assert!(f[0].condition.is_empty());
     assert!(!f[1].is_now);
@@ -371,6 +371,42 @@ fn now_page_second_line_falls_back() {
     let f = ha_forecasts(&no_temp, "en", 0);
     assert_eq!(f.len(), 1);
     assert!(!f[0].is_now);
+}
+
+#[test]
+fn now_page_widest_line_fits_128() {
+    // "34%  12mph" (two-digit wind) must stay on a 128 px panel.
+    let dir = std::env::temp_dir().join(format!("am_weather_fit_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let config = Config::new(dir.join("config.json"));
+    let topic = "test/ha_screens/weather_fit";
+    data_feed().publish(
+        topic,
+        r#"{"units":"imperial","current":{"temp":104,"condition":"sunny","humidity":34,"wind":12,"wind_unit":"mph"}}"#,
+    );
+    let mut cfg = HashMap::new();
+    cfg.insert("source".to_string(), "ha".to_string());
+    cfg.insert("topic".to_string(), topic.to_string());
+    let mut engine = WeatherEngine::new();
+    let mut m = MockMatrix::new(128, 32);
+    let mut ctx = EngineContext {
+        matrix: &mut m,
+        config: &config,
+    };
+    engine
+        .initialize(&mut ctx, &HashConfig { data: &cfg })
+        .unwrap();
+    engine.activate();
+    engine.update(&mut ctx);
+    engine.render(&mut ctx);
+    // Line 2 (grey) must not reach the last column, i.e. it isn't clipped.
+    let grey = |x: u32| (0..32).any(|y| px(&m, x, y) == (210, 210, 210));
+    let last = (0..128).rev().find(|&x| grey(x)).expect("line 2 drawn");
+    assert!(last < 127, "line 2 ends at x={}", last);
+    if let Ok(out) = std::env::var("HA_PREVIEW_DIR") {
+        save(&m, &out, "weather_ha_now_34_12mph");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
