@@ -409,6 +409,58 @@ fn now_page_widest_line_fits_128() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Colours of the top-most and bottom-most rows that use `c` in a region.
+fn rows_with(m: &MockMatrix, xs: std::ops::Range<u32>, c: (u8, u8, u8)) -> Option<(u32, u32)> {
+    let rows: Vec<u32> = (0..m.canvas.height())
+        .filter(|&y| xs.clone().any(|x| px(m, x, y) == c))
+        .collect();
+    Some((*rows.first()?, *rows.last()?))
+}
+
+fn render_weather_day(payload: &str, w: u32, h: u32, name: &str) -> MockMatrix {
+    let dir = std::env::temp_dir().join(format!("am_weather_{}_{}", name, std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let config = Config::new(dir.join("config.json"));
+    let topic = format!("test/ha_screens/{}", name);
+    data_feed().publish(&topic, payload);
+    let mut cfg = HashMap::new();
+    cfg.insert("source".to_string(), "ha".to_string());
+    cfg.insert("topic".to_string(), topic);
+    let mut engine = WeatherEngine::new();
+    let mut m = MockMatrix::new(w, h);
+    let mut ctx = EngineContext {
+        matrix: &mut m,
+        config: &config,
+    };
+    engine
+        .initialize(&mut ctx, &HashConfig { data: &cfg })
+        .unwrap();
+    engine.activate();
+    engine.update(&mut ctx);
+    engine.render(&mut ctx);
+    let _ = std::fs::remove_dir_all(&dir);
+    m
+}
+
+#[test]
+fn fahrenheit_puts_high_above_low_celsius_does_not() {
+    const LOW: (u8, u8, u8) = (120, 200, 255);
+    const HIGH: (u8, u8, u8) = (255, 150, 50);
+    // No current temp -> no NOW page, so the first page is TODAY.
+    let f = r#"{"units":"imperial","days":[{"temp_max":89,"temp_min":70,"condition":"sunny"}]}"#;
+    let c = r#"{"units":"metric","days":[{"temp_max":31,"temp_min":21,"condition":"sunny"}]}"#;
+    for (w, h) in [(128u32, 32u32), (256, 64)] {
+        let mf = render_weather_day(f, w, h, &format!("hi_f_{}", w));
+        let (hi_top, _) = rows_with(&mf, 0..w, HIGH).unwrap();
+        let (lo_top, _) = rows_with(&mf, 0..w, LOW).unwrap();
+        assert!(hi_top < lo_top, "{}x{}: °F high must be on top", w, h);
+        let mc = render_weather_day(c, w, h, &format!("hi_c_{}", w));
+        let (hi_top, _) = rows_with(&mc, 0..w, HIGH).unwrap();
+        let (lo_top, _) = rows_with(&mc, 0..w, LOW).unwrap();
+        assert!(lo_top < hi_top, "{}x{}: °C keeps low on top", w, h);
+    }
+}
+
 #[test]
 fn day0_condition_falls_back_to_current() {
     let w = parse_weather_payload(
