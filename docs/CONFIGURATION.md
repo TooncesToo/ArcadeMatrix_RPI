@@ -466,11 +466,11 @@ Home Assistant example (an automation action publishing a retained payload every
 
 ```json
 {"v":1,"title":"HOME",
- "tiles":[{"label":"DN","value":"76","unit":"°F","color":"#2060FF"},
+ "tiles":[{"label":"DOWNSTAIRS","label_short":"DOWN","value":"76","unit":"°F","color":"#2060FF"},
           {"label":"AC 24H","value":"17.0","unit":"h","color":"#FFB000","label_color":"#808080"}]}
 ```
 
-1-3 tiles share the width (value as large as fits, label above); 4 tiles form a 2x2 grid (label left, value right, no title). A value too wide for its cell drops its unit first, then is truncated. Shows `NO DATA` until the first payload.
+Each tile is stacked and centred in its cell: label on top, value + unit below. 1-3 tiles share the width (value as large as fits); 4 tiles form a 2x2 grid with no title. An optional `label_short` is used only when the full `label` doesn't fit (likewise `title_short` for the `graph` engine). A value too wide for its cell drops its unit; values are never truncated. Shows `NO DATA` until the first payload.
 
 ---
 

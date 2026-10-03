@@ -66,6 +66,8 @@ pub struct GraphMark {
 #[derive(Debug, Clone, PartialEq)]
 pub struct GraphData {
     pub title: String,
+    /// Optional abbreviation, used only when `title` doesn't fit the header.
+    pub title_short: String,
     pub summary: String,
     pub unit: String,
     /// Number of x positions; data is right-aligned into these.
@@ -250,6 +252,7 @@ fn parse_graph_value(root: &Value) -> Option<GraphData> {
 
     let mut graph = GraphData {
         title: short_text(root.get("title")),
+        title_short: short_text(root.get("title_short")),
         summary: short_text(root.get("summary")),
         unit: short_text(root.get("unit")),
         slots,
@@ -340,6 +343,8 @@ fn y_range(g: &GraphData) -> (f32, f32) {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValueTile {
     pub label: String,
+    /// Optional abbreviation, used only when `label` doesn't fit its cell.
+    pub label_short: String,
     pub value: String,
     pub unit: String,
     pub color: (u8, u8, u8),
@@ -376,6 +381,7 @@ fn parse_values_value(root: &Value) -> Option<ValuesData> {
             };
             ValueTile {
                 label: short_text(t.get("label")),
+                label_short: short_text(t.get("label_short")),
                 value,
                 unit: short_text(t.get("unit")),
                 color: color(t.get("color"), (255, 255, 255)),

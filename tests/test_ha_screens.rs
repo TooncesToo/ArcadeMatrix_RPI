@@ -27,6 +27,14 @@ fn lit_in(
     xs.clone().any(|x| ys.clone().any(|y| px(m, x, y) == c))
 }
 
+/// The store has a single writer in production (the MQTT thread); parallel
+/// tests must not publish at the same time or they can race for a free slot.
+fn publish_test(topic: &str, payload: &str) {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    data_feed().publish(topic, payload);
+}
+
 const RED: (u8, u8, u8) = (0xFF, 0x40, 0x20);
 const BLUE: (u8, u8, u8) = (0x20, 0x60, 0xFF);
 
@@ -222,37 +230,76 @@ fn values_parse_and_limits() {
 }
 
 #[test]
-fn fit_rule_drops_unit_then_truncates() {
+fn fit_rule_drops_unit_but_never_truncates_value() {
     // Fits big with unit.
     let f = fit_value("2.8", "kW", &[3, 2, 1], 128, 24);
     assert_eq!((f.scale, f.show_unit, f.chars), (3, true, 3));
     // Too tall for G3 in 16 rows -> G2.
     let f = fit_value("2.8", "kW", &[3, 2, 1], 128, 16);
     assert_eq!(f.scale, 2);
-    // Grid cell: G1 only. "31.2"+gap+"kWh"(tiny) = 23+2+11 = 36.
+    // G1 only. "31.2"+gap+"kWh"(tiny) = 23+2+11 = 36.
     let f = fit_value("31.2", "kWh", &[1], 36, 16);
     assert!(f.show_unit);
     let f = fit_value("31.2", "kWh", &[1], 35, 16);
     assert_eq!((f.show_unit, f.chars), (false, 4));
+    // Too wide even without the unit: drawn in full anyway.
     let f = fit_value("123456", "", &[1], 20, 16);
-    assert_eq!((f.show_unit, f.chars), (false, 3)); // 3 chars = 17 px
+    assert_eq!((f.show_unit, f.chars), (false, 6));
+}
+
+const HOME: &str = r##"{"v":1,"title":"HOME","tiles":[
+  {"label":"DOWNSTAIRS","label_short":"DOWN","value":"75","unit":"°F","color":"#FFFFFF"},
+  {"label":"UPSTAIRS","label_short":"UP","value":"76","unit":"°F","color":"#FFFFFF"},
+  {"label":"AC","label_short":"AC","value":"18.2","unit":"HOURS","color":"#40C0FF"},
+  {"label":"OUTSIDE","label_short":"OUT","value":"90","unit":"°F","color":"#FF6040"}]}"##;
+
+#[test]
+fn values_grid_is_stacked_on_128x32() {
+    let d = parse_values_payload(HOME).unwrap();
+    assert_eq!(d.tiles[0].label_short, "DOWN");
+    let mut m = MockMatrix::new(128, 32);
+    render_values(&mut m, Some(&d), true, "NO DATA");
+    let grey = (0x80, 0x80, 0x80);
+    // Block = 5 + 1 + 7 = 13 rows, top = cell_y + 1: labels on rows 1..5 / 17..21,
+    // values on rows 7..13 / 23..29.
+    assert!(lit_in(&m, 0..62, 1..6, grey));
+    assert!(!lit_in(&m, 0..128, 0..1, grey));
+    assert!(lit_in(&m, 0..62, 7..14, (255, 255, 255)));
+    assert!(!lit_in(&m, 0..62, 1..6, (255, 255, 255)));
+    assert!(lit_in(&m, 0..62, 23..30, (0x40, 0xC0, 0xFF)));
+    assert!(lit_in(&m, 66..128, 23..30, (0xFF, 0x60, 0x40)));
+    // "DOWNSTAIRS" (39 px) fits the 62 px cell, so the full label is used: centred at x = 11.
+    assert!(lit_in(&m, 11..13, 1..6, grey));
+    assert!(!lit_in(&m, 0..11, 1..6, grey));
+    // Gutter columns 62..65 stay dark.
+    assert!((62..66).all(|x| (0..32).all(|y| px(&m, x, y) == (0, 0, 0))));
 }
 
 #[test]
-fn values_grid_positions_on_128x32() {
-    let d = parse_values_payload(ENERGY).unwrap();
+fn short_label_used_only_when_full_does_not_fit() {
+    let d = parse_values_payload(
+        r#"{"tiles":[{"label":"DOWNSTAIRS","label_short":"DOWN","value":"1"},{"value":"2"},{"value":"3"}]}"#,
+    )
+    .unwrap();
+    // 3 columns on 128x32: inner width 40 >= 39 -> full label still fits.
     let mut m = MockMatrix::new(128, 32);
-    render_values(&mut m, Some(&d), true, "NO DATA");
-    // No title with 4 tiles: row 0..3 stays dark.
-    assert!((0..128).all(|x| (0..4).all(|y| px(&m, x, y) == (0, 0, 0))));
-    // Tile 0 value (amber) right-aligned in the left cell, rows 4..10.
-    assert!(lit_in(&m, 30..62, 4..11, (0xFF, 0xB0, 0x00)));
-    assert!(!lit_in(&m, 62..64, 0..32, (0xFF, 0xB0, 0x00)));
-    // Label grey at x=0, bottom-aligned rows 6..10.
-    assert!(lit_in(&m, 0..20, 6..11, (0x80, 0x80, 0x80)));
-    assert!(!lit_in(&m, 0..20, 0..6, (0x80, 0x80, 0x80)));
-    // Tile 3 (bottom right) value in rows 20..26.
-    assert!(lit_in(&m, 66..128, 20..27, (0xFF, 0x60, 0x40)));
+    render_values(&mut m, Some(&d), false, "");
+    let grey = (0x80, 0x80, 0x80);
+    let (lo, hi) = (0..40)
+        .filter(|&x| (0..32).any(|y| px(&m, x, y) == grey))
+        .fold((u32::MAX, 0), |(a, b), x| (a.min(x), b.max(x)));
+    assert_eq!(hi - lo + 1, 39);
+    // A 30 px wide cell can't hold it -> "DOWN" (15 px).
+    let d4 = parse_values_payload(
+        r#"{"tiles":[{"label":"DOWNSTAIRS","label_short":"DOWN","value":"1"},{"value":"2"},{"value":"3"},{"value":"4"}]}"#,
+    )
+    .unwrap();
+    let mut small = MockMatrix::new(64, 32); // 2x2 cells of 30 px
+    render_values(&mut small, Some(&d4), false, "");
+    let (lo, hi) = (0..30)
+        .filter(|&x| (0..16).any(|y| px(&small, x, y) == grey))
+        .fold((u32::MAX, 0), |(a, b), x| (a.min(x), b.max(x)));
+    assert_eq!(hi - lo + 1, 15);
 }
 
 #[test]
@@ -264,7 +311,7 @@ fn six_char_label_fits_grid_with_unit() {
 }
 
 #[test]
-fn values_single_tile_uses_big_font_and_title() {
+fn values_single_tile_stacks_under_title() {
     let d = parse_values_payload(
         r##"{"title":"POWER","tiles":[{"label":"HOUSE","value":"2.8","unit":"kW","color":"#FFB000"}]}"##,
     )
@@ -272,10 +319,10 @@ fn values_single_tile_uses_big_font_and_title() {
     let mut m = MockMatrix::new(128, 32);
     render_values(&mut m, Some(&d), true, "NO DATA");
     assert!(lit_in(&m, 0..30, 0..7, (255, 255, 255))); // title
-    assert!(lit_in(&m, 100..128, 2..7, (0x80, 0x80, 0x80))); // label right on title row
-                                                             // G3 value (21 rows) centred in rows 8..31 -> rows 9..29.
-    assert!(lit_in(&m, 0..128, 9..12, (0xFF, 0xB0, 0x00)));
-    assert!(!lit_in(&m, 0..128, 0..9, (0xFF, 0xB0, 0x00)));
+                                                       // ch = 24: G3 doesn't fit (27), G2 block = 5 + 1 + 14 = 20, top = 8 + 2 = 10.
+    assert!(lit_in(&m, 0..128, 10..15, (0x80, 0x80, 0x80))); // label rows 10..14
+    assert!(lit_in(&m, 0..128, 16..30, (0xFF, 0xB0, 0x00))); // value rows 16..29
+    assert!(!lit_in(&m, 0..128, 30..32, (0xFF, 0xB0, 0x00)));
 }
 
 #[test]
@@ -380,7 +427,7 @@ fn now_page_widest_line_fits_128() {
     std::fs::create_dir_all(&dir).unwrap();
     let config = Config::new(dir.join("config.json"));
     let topic = "test/ha_screens/weather_fit";
-    data_feed().publish(
+    publish_test(
         topic,
         r#"{"units":"imperial","current":{"temp":104,"condition":"sunny","humidity":34,"wind":12,"wind_unit":"mph"}}"#,
     );
@@ -422,7 +469,7 @@ fn render_weather_day(payload: &str, w: u32, h: u32, name: &str) -> MockMatrix {
     std::fs::create_dir_all(&dir).unwrap();
     let config = Config::new(dir.join("config.json"));
     let topic = format!("test/ha_screens/{}", name);
-    data_feed().publish(&topic, payload);
+    publish_test(&topic, payload);
     let mut cfg = HashMap::new();
     cfg.insert("source".to_string(), "ha".to_string());
     cfg.insert("topic".to_string(), topic);
@@ -506,7 +553,7 @@ fn weather_engine_reads_ha_payload_from_store() {
         engine.activate();
         engine.render(&mut ctx); // no payload yet -> "--°" notice, must not panic
     }
-    data_feed().publish(topic, WEATHER);
+    publish_test(topic, WEATHER);
     m.clear();
     {
         let mut ctx = EngineContext {
@@ -595,7 +642,18 @@ fn render_v2_previews() {
         net.join(","),
         net_temp.join(",")
     );
-    let graphs = [("graph_cool_lines", cool), ("graph_neg_bars_mixed", mixed)];
+    let title_case = format!(
+        r##"{{"title":"DOWNSTAIRS COOL","title_short":"DOWN COOL","summary":"76°","min":68,"max":90,"yaxis":true,
+         "series":[{{"label":"T10","style":"line","color":"#2060FF","data":[{}]}},
+                   {{"label":"OUT","style":"line","color":"#FF4020","data":[{}]}}]}}"##,
+        t10.join(","),
+        out.join(",")
+    );
+    let graphs = [
+        ("graph_cool_lines", cool),
+        ("graph_neg_bars_mixed", mixed),
+        ("graph_title_full_short", title_case),
+    ];
     for (name, json) in graphs.iter() {
         let g = parse_graph_payload(json).expect(name);
         for (w, h) in [(128u32, 32u32), (256, 64)] {
@@ -607,12 +665,14 @@ fn render_v2_previews() {
 
     let values_cases = [
         ("values_4tiles", ENERGY.to_string()),
+        ("values_home", HOME.to_string()),
         (
-            "values_home",
-            r##"{"title":"HOME","tiles":[{"label":"DN","value":"76","unit":"°F","color":"#2060FF"},
-              {"label":"UP","value":"78","unit":"°F","color":"#00D0A0"},
-              {"label":"AC 24H","value":"17.0","unit":"h","color":"#FFB000"},
-              {"label":"OUT","value":"75","unit":"°F","color":"#FF4020"}]}"##
+            "values_home_worst",
+            r##"{"v":1,"title":"HOME","tiles":[
+              {"label":"DOWNSTAIRS","label_short":"DOWN","value":"100","unit":"°F","color":"#FFFFFF"},
+              {"label":"UPSTAIRS","label_short":"UP","value":"112","unit":"°F","color":"#FFFFFF"},
+              {"label":"AC","label_short":"AC","value":"24.0","unit":"HOURS","color":"#40C0FF"},
+              {"label":"OUTSIDE","label_short":"OUT","value":"112","unit":"°F","color":"#FF6040"}]}"##
                 .to_string(),
         ),
         (
@@ -663,7 +723,7 @@ fn render_v2_previews() {
     std::fs::create_dir_all(&cfgdir).unwrap();
     let config = Config::new(cfgdir.join("config.json"));
     let topic = "test/ha_screens/weather_preview";
-    data_feed().publish(topic, WEATHER);
+    publish_test(topic, WEATHER);
     let mut cfg = HashMap::new();
     cfg.insert("source".to_string(), "ha".to_string());
     cfg.insert("topic".to_string(), topic.to_string());
