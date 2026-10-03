@@ -436,11 +436,11 @@ De 1 a 4 casillas de texto ya formateado: el panel no calcula nada.
 
 ```json
 {"v":1,"title":"HOME",
- "tiles":[{"label":"DN","value":"76","unit":"°F","color":"#2060FF"},
+ "tiles":[{"label":"DOWNSTAIRS","label_short":"DOWN","value":"76","unit":"°F","color":"#2060FF"},
           {"label":"AC 24H","value":"17.0","unit":"h","color":"#FFB000","label_color":"#808080"}]}
 ```
 
-1 a 3 casillas comparten el ancho (valor lo más grande posible, etiqueta encima); 4 casillas forman una cuadrícula 2x2 (etiqueta a la izquierda, valor a la derecha, sin título). Un valor demasiado ancho pierde primero la unidad y luego se trunca. Muestra `SIN DATOS` hasta el primer mensaje.
+Cada casilla se apila y centra en su celda: etiqueta arriba, valor + unidad debajo. 1 a 3 casillas comparten el ancho (valor lo más grande posible); 4 casillas forman una cuadrícula 2x2 sin título. Un `label_short` opcional solo se usa si la `label` completa no cabe (igual `title_short` en el motor `graph`). Un valor demasiado ancho pierde la unidad; los valores nunca se truncan. Muestra `SIN DATOS` hasta el primer mensaje.
 
 ---
 

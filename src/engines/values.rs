@@ -83,7 +83,7 @@ fn value_chain(tall: bool, n: usize) -> &'static [i32] {
 pub struct ValueFit {
     pub scale: i32,
     pub show_unit: bool,
-    /// Number of value characters drawn (truncated from the end when needed).
+    /// Number of value characters drawn (always the whole value).
     pub chars: usize,
 }
 
@@ -125,7 +125,7 @@ fn line_width(value_chars: usize, unit: &str, fit: &ValueFit) -> i32 {
 }
 
 /// Fit rule from layout-v2.md: biggest font with the unit, then without the
-/// unit, then the smallest font with the value truncated from the end.
+/// unit, then the smallest font. The value itself is never truncated.
 pub fn fit_value(value: &str, unit: &str, chain: &[i32], aw: i32, ah: i32) -> ValueFit {
     let n = value.chars().count();
     let smallest = *chain.last().unwrap_or(&1);
@@ -149,14 +149,11 @@ pub fn fit_value(value: &str, unit: &str, chain: &[i32], aw: i32, ah: i32) -> Va
             return f;
         }
     }
-    let mut chars = n;
-    while chars > 0 && glcd_width(chars, smallest) > aw {
-        chars -= 1;
-    }
+    // Never truncate a value: draw it in full at the smallest size.
     ValueFit {
         scale: smallest,
         show_unit: false,
-        chars,
+        chars: n,
     }
 }
 
@@ -180,6 +177,86 @@ fn draw_value_line(m: &mut dyn MatrixBackend, t: &ValueTile, fit: &ValueFit, x: 
         let uy = y + fit.value_h() - uf.height();
         uf.draw(m, &t.unit, ux, uy, 0, w, t.label_color);
     }
+}
+
+/// The label text and font chosen for a cell (layout-v2.md "Label choice").
+struct LabelPick<'a> {
+    text: &'a str,
+    font: SmallFont,
+}
+
+/// Full label at the intended font, then the short form, then the fallback
+/// font, then the shortest text truncated from the end.
+fn pick_label<'a>(t: &'a ValueTile, tall: bool, iw: i32) -> Option<LabelPick<'a>> {
+    if t.label.is_empty() && t.label_short.is_empty() {
+        return None;
+    }
+    let intended = if tall {
+        SmallFont::Glcd
+    } else {
+        SmallFont::Tiny
+    };
+    let mut fonts: &[SmallFont] = &[SmallFont::Tiny];
+    if tall {
+        fonts = &[SmallFont::Glcd, SmallFont::Tiny];
+    }
+    let texts = [t.label.as_str(), t.label_short.as_str()];
+    for &font in fonts {
+        for text in texts.iter().filter(|s| !s.is_empty()) {
+            if font.width(text) <= iw {
+                return Some(LabelPick { text, font });
+            }
+        }
+    }
+    let font = *fonts.last().unwrap_or(&intended);
+    let shortest = if t.label_short.is_empty() {
+        t.label.as_str()
+    } else {
+        t.label_short.as_str()
+    };
+    let mut chars = shortest.chars().count();
+    while chars > 0 && font.width(prefix(shortest, chars)) > iw {
+        chars -= 1;
+    }
+    Some(LabelPick {
+        text: prefix(shortest, chars),
+        font,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+/// Draws one stacked tile (label on top, value + unit below), centred in the
+/// inner box `[ix, ix + iw)` x `[top, top + ch)`.
+fn draw_tile(
+    m: &mut dyn MatrixBackend,
+    t: &ValueTile,
+    chain: &[i32],
+    tall: bool,
+    ix: i32,
+    iw: i32,
+    cell_top: i32,
+    ch: i32,
+) {
+    let lg = if tall { 2 } else { 1 };
+    let label = pick_label(t, tall, iw);
+    let label_block = label.as_ref().map(|l| l.font.height() + lg).unwrap_or(0);
+    let fit = fit_value(&t.value, &t.unit, chain, iw, ch - label_block);
+    let block_h = label_block + fit.value_h();
+    let top = cell_top + (ch - block_h) / 2;
+    if let Some(l) = label {
+        let lw = l.font.width(l.text);
+        l.font.draw(
+            m,
+            l.text,
+            ix + (iw - lw) / 2,
+            top,
+            ix,
+            ix + iw,
+            t.label_color,
+        );
+    }
+    let line_w = line_width(fit.chars, &t.unit, &fit);
+    draw_value_line(m, t, &fit, ix + (iw - line_w) / 2, top + label_block);
 }
 
 /// Draws the whole screen for `data` (or the "no data" notice).
@@ -211,36 +288,18 @@ pub fn render_values(
     };
 
     let tall = h >= 64;
-    let small = if tall {
-        SmallFont::Glcd
-    } else {
-        SmallFont::Tiny
-    };
     let n = d.tiles.len().min(4);
     let chain = value_chain(tall, n);
 
     if n == 4 {
-        // 2x2 grid, no title. Label left, value line right-aligned, bottoms aligned.
+        // 2x2 grid of stacked tiles, no title; 4 px gutter between columns.
         let (cw, chh) = (w / 2, h / 2);
         for (i, t) in d.tiles.iter().take(4).enumerate() {
             let (c, r) = ((i % 2) as i32, (i / 2) as i32);
-            let (x, y) = (c * cw, r * chh);
+            let x = c * cw;
             let ix = x + if c == 1 { 2 } else { 0 };
-            let rx = x + cw - if c == 0 { 2 } else { 0 };
-            let lw = if t.label.is_empty() {
-                0
-            } else {
-                small.width(&t.label)
-            };
-            let aw = rx - ix - lw - 2;
-            let fit = fit_value(&t.value, &t.unit, chain, aw, chh);
-            let vy = y + (chh - fit.value_h()) / 2;
-            let total = line_width(fit.chars, &t.unit, &fit);
-            draw_value_line(m, t, &fit, rx - total, vy);
-            if lw > 0 {
-                let ly = vy + fit.value_h() - small.height();
-                small.draw(m, &t.label, ix, ly, ix, rx, t.label_color);
-            }
+            let cell_end = x + cw - if c == 0 { 2 } else { 0 };
+            draw_tile(m, t, chain, tall, ix, cell_end - ix, r * chh, chh);
         }
         return;
     }
@@ -262,34 +321,7 @@ pub fn render_values(
         // 4 px gutter between columns: 2 px off each neighbouring cell.
         let cell_end = ((i as i32 + 1) * w) / n as i32 - if i + 1 < n { 2 } else { 0 };
         let ix = cell_x + if i > 0 { 2 } else { 0 };
-
-        let area_top = if t.label.is_empty() {
-            ct
-        } else if n == 1 && titled {
-            // Label shares the title row, right-aligned.
-            let ly = if tall { 0 } else { 2 };
-            small.draw(
-                m,
-                &t.label,
-                w - small.width(&t.label),
-                ly,
-                0,
-                w,
-                t.label_color,
-            );
-            ct
-        } else {
-            small.draw(m, &t.label, ix, ct, ix, cell_end, t.label_color);
-            ct + small.height() + 1
-        };
-
-        let aw = cell_end - ix;
-        let ah = h - area_top;
-        let fit = fit_value(&t.value, &t.unit, chain, aw, ah);
-        let total = line_width(fit.chars, &t.unit, &fit);
-        let vx = ix + (aw - total) / 2;
-        let vy = area_top + (ah - fit.value_h()) / 2;
-        draw_value_line(m, t, &fit, vx, vy);
+        draw_tile(m, t, chain, tall, ix, cell_end - ix, ct, h - ct);
     }
 }
 

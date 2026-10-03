@@ -434,11 +434,11 @@ Exemple Home Assistant (action d'automatisation publiant un message retained tou
 
 ```json
 {"v":1,"title":"HOME",
- "tiles":[{"label":"DN","value":"76","unit":"°F","color":"#2060FF"},
+ "tiles":[{"label":"DOWNSTAIRS","label_short":"DOWN","value":"76","unit":"°F","color":"#2060FF"},
           {"label":"AC 24H","value":"17.0","unit":"h","color":"#FFB000","label_color":"#808080"}]}
 ```
 
-1 à 3 tuiles se partagent la largeur (valeur aussi grande que possible, libellé au-dessus) ; 4 tuiles forment une grille 2x2 (libellé à gauche, valeur à droite, sans titre). Une valeur trop large perd d'abord son unité, puis est tronquée. Affiche `PAS DE DONNEES` avant le premier message.
+Chaque tuile est empilée et centrée dans sa cellule : libellé en haut, valeur + unité dessous. 1 à 3 tuiles se partagent la largeur (valeur aussi grande que possible) ; 4 tuiles forment une grille 2x2 sans titre. Un `label_short` optionnel n'est utilisé que si le `label` complet ne tient pas (de même `title_short` pour le moteur `graph`). Une valeur trop large perd son unité ; les valeurs ne sont jamais tronquées. Affiche `PAS DE DONNEES` avant le premier message.
 
 ---
 

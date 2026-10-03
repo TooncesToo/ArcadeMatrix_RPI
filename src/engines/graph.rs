@@ -175,9 +175,19 @@ pub fn render_graph_with(
         };
         let summary_x = w - summary_w;
         let title_max_x = if summary_w > 0 { summary_x - s } else { w };
+        // Full title when it fits, else the short form, else the shorter one clipped.
+        let room = title_max_x.max(0);
+        let fits = |t: &str| measure_text(t) * s <= room;
+        let title: &str = if fits(&g.title) || g.title_short.is_empty() {
+            &g.title
+        } else if fits(&g.title_short) || g.title_short.len() < g.title.len() {
+            &g.title_short
+        } else {
+            &g.title
+        };
         draw_text_scaled(
             matrix,
-            &g.title,
+            title,
             0,
             0,
             0,
