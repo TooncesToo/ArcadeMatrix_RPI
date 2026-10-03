@@ -302,6 +302,8 @@ With `source = ha` the sign does no HTTP fetch at all. Payload (temperatures alr
 
 The cycle starts with a NOW page: the live `current.temp`, then humidity and wind (`current.humidity`, `current.wind`, `current.wind_unit`). `units`: `imperial` = °F labels, `metric` = °C. Day 0 uses the live `current.temp` as its temperature; up to 5 days are used. HA conditions (sunny, clear-night, partlycloudy, cloudy, fog, exceptional, rainy, pouring, lightning, lightning-rainy, snowy, snowy-rainy, hail, windy, windy-variant) map to the existing icons and get translated labels.
 
+In °F the high is shown above the low (US convention).
+
 #### How to Format the `city` Field on OpenWeatherMap
 OpenWeatherMap uses the ISO 3166 country code (and 2-letter state code for the US) to disambiguate locations:
 * **International Locations:** Use `City,CountryCode` (e.g. `Paris,FR`, `London,GB`, `Tokyo,JP`, `Montreal,CA`).

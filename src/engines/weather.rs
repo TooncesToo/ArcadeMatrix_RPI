@@ -470,19 +470,40 @@ impl WeatherEngine {
             let base_x = i as u32 * mw;
             let font = self.base_renderer.font();
 
+            // In °F the high goes above the low (US convention): swap the two
+            // temperature rows for forecast days. °C keeps low on top.
+            let high_on_top = !slide.is_now && slide.temp_max.ends_with("°F");
+            let swapped;
+            let slide = if high_on_top {
+                swapped = DayForecast {
+                    temp_min: slide.temp_max.clone(),
+                    temp_max: slide.temp_min.clone(),
+                    ..slide.clone()
+                };
+                &swapped
+            } else {
+                slide
+            };
+
             let color_label = (180, 180, 255);
             let color_desc = (210, 210, 210);
-            // The HA "NOW" page draws the live reading in white and the
-            // humidity / wind line in the condition grey.
+            let color_low = (120, 200, 255);
+            let color_high = (255, 150, 50);
+            // Top / bottom temperature row colours. The HA "NOW" page draws the
+            // live reading in white and the humidity / wind line in the condition grey.
             let color_morning = if slide.is_now {
                 (255, 255, 255)
+            } else if high_on_top {
+                color_high
             } else {
-                (120, 200, 255)
+                color_low
             };
             let color_afternoon = if slide.is_now {
                 color_desc
+            } else if high_on_top {
+                color_low
             } else {
-                (255, 150, 50)
+                color_high
             };
 
             if mw >= 256 && mh >= 64 {

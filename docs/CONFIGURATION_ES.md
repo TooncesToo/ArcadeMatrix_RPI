@@ -286,6 +286,8 @@ Con `source = ha` el panel no hace ninguna petición HTTP. Mensaje (temperaturas
 
 El ciclo empieza con una página AHORA: la lectura en vivo `current.temp`, luego humedad y viento (`current.humidity`, `current.wind`, `current.wind_unit`). `units`: `imperial` = °F, `metric` = °C. El día 0 usa la lectura en vivo `current.temp`; hasta 5 días. Las condiciones estándar de HA se asocian a los iconos existentes y se traducen.
 
+En °F la máxima se muestra encima de la mínima (convención estadounidense).
+
 #### Cómo formatear el campo `city` en OpenWeatherMap
 OpenWeatherMap utiliza el código de país ISO 3166 (y el código de estado de 2 letras para EE. UU.):
 * **Ubicaciones Internacionales:** Use `Ciudad,CodigoPais` (ej. `Paris,FR`, `London,GB`, `Tokyo,JP`, `Montreal,CA`).
