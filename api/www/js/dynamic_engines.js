@@ -109,6 +109,7 @@ export function getEngineMeta(descOrMeta) {
   if (!icon) {
     if (id === 'dashboard' || cat === 'dashboard') icon = '📊';
     else if (id === 'graph') icon = '📉';
+    else if (id === 'values') icon = '🔢';
     else if (id.includes('clock') || cat.includes('time')) icon = '⏰';
     else if (id.includes('weather') || cat.includes('weather')) icon = '🌤️';
     else if (id.includes('crypto') || cat.includes('crypto')) icon = '🪙';

@@ -6,7 +6,7 @@ use arcadematrix::core::data_feed::{
     MAX_POINTS, MAX_SERIES, MAX_TOPICS,
 };
 use arcadematrix::core::data_mqtt::{data_client_id, is_active, subscription_filter};
-use arcadematrix::core::matrix::{MatrixBackend, MockMatrix};
+use arcadematrix::core::matrix::MockMatrix;
 use arcadematrix::core::registry::EngineRegistry;
 use arcadematrix::engines::graph::{layout_for, render_graph, slot_for_column};
 
@@ -37,8 +37,8 @@ fn parses_full_payload() {
     assert_eq!(g.summary, "12.3kWh");
     assert_eq!(g.unit, "kW");
     assert_eq!(g.slots, 96);
-    assert_eq!(g.max, 6.0);
-    assert_eq!(g.effective_max, 6.0);
+    assert_eq!(g.max, Some(6.0));
+    assert_eq!(g.hi, 6.0);
     assert!(g.stack);
     assert_eq!(g.series.len(), 2);
     assert_eq!(g.series[0].color, UP);
@@ -74,20 +74,22 @@ fn slots_default_to_longest_series() {
 #[test]
 fn auto_max_uses_stacked_sum_or_single_peak() {
     let stacked = parse_graph_payload(r#"{"series":[{"data":[1,3]},{"data":[2,2]}]}"#).unwrap();
-    assert_eq!(stacked.effective_max, 5.0);
+    assert_eq!(stacked.hi, 5.0);
     let overlay =
         parse_graph_payload(r#"{"stack":false,"series":[{"data":[1,3]},{"data":[2,2]}]}"#).unwrap();
-    assert_eq!(overlay.effective_max, 3.0);
+    assert_eq!(overlay.hi, 3.0);
     let zeros = parse_graph_payload(r#"{"max":0,"series":[{"data":[0,0]}]}"#).unwrap();
-    assert!((zeros.effective_max - 0.001).abs() < 1e-6);
+    assert!((zeros.hi - 0.001).abs() < 1e-6);
     let negative_max = parse_graph_payload(r#"{"max":-4,"series":[{"data":[2]}]}"#).unwrap();
-    assert_eq!(negative_max.effective_max, 2.0);
+    assert_eq!(negative_max.hi, 2.0);
 }
 
 #[test]
 fn bad_points_become_zero_and_limits_apply() {
     let g = parse_graph_payload(r#"{"series":[{"data":[1,null,"x",true,2]}]}"#).unwrap();
-    assert_eq!(g.series[0].data, vec![1.0, 0.0, 0.0, 0.0, 2.0]);
+    let vals: Vec<f32> = (0..5).map(|i| g.value_at(&g.series[0], i)).collect();
+    assert_eq!(vals, vec![1.0, 0.0, 0.0, 0.0, 2.0]);
+    assert_eq!(g.value_opt(&g.series[0], 1), None);
 
     let many_series = format!(
         r#"{{"series":[{}]}}"#,

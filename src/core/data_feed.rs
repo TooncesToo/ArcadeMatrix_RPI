@@ -5,8 +5,9 @@
 //! number of lock-free slots (`ArcSwapOption`), and a global generation counter
 //! lets an engine skip the lookup entirely while nothing has changed.
 //!
-//! Payloads that look like a graph (`"series"` array) are parsed once on
-//! arrival into a [`GraphData`], so the render path never touches JSON.
+//! Payloads are parsed once on arrival, by shape: a `"series"` array becomes a
+//! [`GraphData`], a `"tiles"` array a [`ValuesData`], and `"current"`/`"days"`
+//! a [`HaWeather`]. The render path never touches JSON.
 
 use arc_swap::ArcSwapOption;
 use serde_json::Value;
@@ -17,11 +18,15 @@ use std::time::Instant;
 /// Maximum number of distinct topics kept.
 pub const MAX_TOPICS: usize = 8;
 /// Maximum accepted payload size in bytes; larger payloads are dropped.
-pub const MAX_PAYLOAD_BYTES: usize = 4096;
+pub const MAX_PAYLOAD_BYTES: usize = 8192;
 /// Maximum number of series in one graph payload (extra series are ignored).
 pub const MAX_SERIES: usize = 4;
 /// Maximum number of points per series (extra points are ignored).
 pub const MAX_POINTS: usize = 288;
+/// Maximum number of tiles in one values payload (extra tiles are ignored).
+pub const MAX_TILES: usize = 4;
+/// Maximum number of forecast days kept from a weather payload.
+pub const MAX_WEATHER_DAYS: usize = 5;
 /// Maximum characters kept for title / summary / unit / labels.
 const MAX_TEXT_CHARS: usize = 32;
 
@@ -37,6 +42,9 @@ const DEFAULT_SERIES_COLORS: [(u8, u8, u8); MAX_SERIES] = [
 pub struct GraphSeries {
     pub label: String,
     pub color: (u8, u8, u8),
+    /// `"style": "line"` (1 px step line); otherwise a bar series.
+    pub line: bool,
+    /// Points; `NaN` marks a JSON null / non-number (a gap in a line, 0 in a bar).
     pub data: Vec<f32>,
 }
 
@@ -53,7 +61,8 @@ pub struct GraphMark {
     pub color: (u8, u8, u8),
 }
 
-/// A parsed graph payload (spec v1), ready to draw without further parsing.
+/// A parsed graph payload (spec v1 + round 2 additions), ready to draw without
+/// further parsing.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GraphData {
     pub title: String,
@@ -61,32 +70,53 @@ pub struct GraphData {
     pub unit: String,
     /// Number of x positions; data is right-aligned into these.
     pub slots: usize,
-    /// Explicit y scale top from the payload (0 = auto).
-    pub max: f32,
-    /// The scale actually used: `max` when > 0, else the auto value.
-    pub effective_max: f32,
+    /// Explicit `min` / `max` from the payload, if any.
+    pub min: Option<f32>,
+    pub max: Option<f32>,
+    /// The y range actually drawn (`lo < hi`).
+    pub lo: f32,
+    pub hi: f32,
     pub stack: bool,
+    /// Print min/max at the left edge (64 px tall panels only).
+    pub yaxis: bool,
     pub series: Vec<GraphSeries>,
     pub bands: Vec<GraphBand>,
     pub marks: Vec<GraphMark>,
 }
 
 impl GraphData {
-    /// Value of `series` at slot index `slot`, honouring right alignment.
-    /// Returns 0 for slots the series does not reach.
-    pub fn value_at(&self, series: &GraphSeries, slot: usize) -> f32 {
+    /// Value of `series` at `slot`, honouring right alignment. `None` for
+    /// slots the series does not reach and for null points.
+    pub fn value_opt(&self, series: &GraphSeries, slot: usize) -> Option<f32> {
         let n = series.data.len();
         if n == 0 || slot >= self.slots {
-            return 0.0;
+            return None;
         }
         // Right-aligned: the last point sits in the last slot.
         let start = self.slots as isize - n as isize;
         let idx = slot as isize - start;
         if idx < 0 || idx as usize >= n {
-            0.0
-        } else {
-            series.data[idx as usize]
+            return None;
         }
+        let v = series.data[idx as usize];
+        if v.is_nan() {
+            None
+        } else {
+            Some(v)
+        }
+    }
+
+    /// Like [`value_opt`](Self::value_opt) but missing points count as 0 (bars).
+    pub fn value_at(&self, series: &GraphSeries, slot: usize) -> f32 {
+        self.value_opt(series, slot).unwrap_or(0.0)
+    }
+
+    pub fn has_bars(&self) -> bool {
+        self.series.iter().any(|s| !s.line)
+    }
+
+    pub fn has_lines(&self) -> bool {
+        self.series.iter().any(|s| s.line)
     }
 }
 
@@ -110,6 +140,12 @@ fn short_text(v: Option<&Value>) -> String {
         .collect()
 }
 
+fn finite(v: Option<&Value>) -> Option<f32> {
+    v.and_then(|v| v.as_f64())
+        .filter(|f| f.is_finite())
+        .map(|f| f as f32)
+}
+
 fn as_index(v: Option<&Value>) -> Option<usize> {
     let v = v?;
     if let Some(u) = v.as_u64() {
@@ -121,10 +157,14 @@ fn as_index(v: Option<&Value>) -> Option<usize> {
         .map(|f| f as usize)
 }
 
-/// Parses a graph payload (spec v1). Returns `None` when the JSON is invalid or
-/// has no `series` array.
+/// Parses a graph payload. Returns `None` when the JSON is invalid or has no
+/// `series` array.
 pub fn parse_graph_payload(json: &str) -> Option<GraphData> {
     let root: Value = serde_json::from_str(json).ok()?;
+    parse_graph_value(&root)
+}
+
+fn parse_graph_value(root: &Value) -> Option<GraphData> {
     let series_val = root.get("series")?.as_array()?;
 
     let mut series = Vec::with_capacity(series_val.len().min(MAX_SERIES));
@@ -134,6 +174,11 @@ pub fn parse_graph_payload(json: &str) -> Option<GraphData> {
             .and_then(|c| c.as_str())
             .and_then(parse_hex_color)
             .unwrap_or(DEFAULT_SERIES_COLORS[i]);
+        let line = s
+            .get("style")
+            .and_then(|v| v.as_str())
+            .map(|v| v.trim().eq_ignore_ascii_case("line"))
+            .unwrap_or(false);
         let data = s
             .get("data")
             .and_then(|d| d.as_array())
@@ -144,7 +189,7 @@ pub fn parse_graph_payload(json: &str) -> Option<GraphData> {
                         p.as_f64()
                             .filter(|f| f.is_finite())
                             .map(|f| f as f32)
-                            .unwrap_or(0.0)
+                            .unwrap_or(f32::NAN)
                     })
                     .collect::<Vec<f32>>()
             })
@@ -152,6 +197,7 @@ pub fn parse_graph_payload(json: &str) -> Option<GraphData> {
         series.push(GraphSeries {
             label: short_text(s.get("label")),
             color,
+            line,
             data,
         });
     }
@@ -163,12 +209,10 @@ pub fn parse_graph_payload(json: &str) -> Option<GraphData> {
         .unwrap_or(longest)
         .max(1);
 
-    let max = root
-        .get("max")
-        .and_then(|m| m.as_f64())
-        .filter(|f| f.is_finite())
-        .unwrap_or(0.0) as f32;
+    let min = finite(root.get("min"));
+    let max = finite(root.get("max"));
     let stack = root.get("stack").and_then(|s| s.as_bool()).unwrap_or(true);
+    let yaxis = root.get("yaxis").and_then(|s| s.as_bool()).unwrap_or(false);
 
     let mut bands = Vec::new();
     if let Some(arr) = root.get("bands").and_then(|b| b.as_array()) {
@@ -209,32 +253,198 @@ pub fn parse_graph_payload(json: &str) -> Option<GraphData> {
         summary: short_text(root.get("summary")),
         unit: short_text(root.get("unit")),
         slots,
+        min,
         max,
-        effective_max: 0.0,
+        lo: 0.0,
+        hi: 1.0,
         stack,
+        yaxis,
         series,
         bands,
         marks,
     };
-    graph.effective_max = if max > 0.0 { max } else { auto_max(&graph) };
+    let (lo, hi) = y_range(&graph);
+    graph.lo = lo;
+    graph.hi = hi;
     Some(graph)
 }
 
-/// Auto scale: the highest stacked sum (stack) or highest single value
-/// (overlay) over all slots, never below 0.001.
-fn auto_max(g: &GraphData) -> f32 {
-    let mut top = 0.0f32;
+/// Lowest / highest value the bars reach over all slots: stacked sums
+/// (positive and negative separately) or single values when not stacked.
+fn bar_extent(g: &GraphData) -> Option<(f32, f32)> {
+    if !g.has_bars() {
+        return None;
+    }
+    let (mut lo, mut hi) = (0.0f32, 0.0f32);
     for slot in 0..g.slots {
-        if g.stack {
-            let sum: f32 = g.series.iter().map(|s| g.value_at(s, slot).max(0.0)).sum();
-            top = top.max(sum);
-        } else {
-            for s in &g.series {
-                top = top.max(g.value_at(s, slot));
+        let (mut cp, mut cn) = (0.0f32, 0.0f32);
+        for s in g.series.iter().filter(|s| !s.line) {
+            let v = g.value_at(s, slot);
+            if g.stack {
+                if v > 0.0 {
+                    cp += v;
+                } else {
+                    cn += v;
+                }
+            } else {
+                hi = hi.max(v);
+                lo = lo.min(v);
+            }
+        }
+        hi = hi.max(cp);
+        lo = lo.min(cn);
+    }
+    Some((lo, hi))
+}
+
+/// The y range to draw (see layout-v2.md "Y range").
+fn y_range(g: &GraphData) -> (f32, f32) {
+    let bars = bar_extent(g);
+    let mut dmin = f32::INFINITY;
+    let mut dmax = f32::NEG_INFINITY;
+    for s in g.series.iter().filter(|s| s.line) {
+        for slot in 0..g.slots {
+            if let Some(v) = g.value_opt(s, slot) {
+                dmin = dmin.min(v);
+                dmax = dmax.max(v);
             }
         }
     }
-    top.max(0.001)
+    let has_line_data = dmin.is_finite();
+
+    let (auto_lo, auto_hi) = if has_line_data {
+        if let Some((blo, bhi)) = bars {
+            dmin = dmin.min(blo);
+            dmax = dmax.max(bhi);
+        }
+        let pad = (0.05 * (dmax - dmin)).max(0.5);
+        (dmin - pad, dmax + pad)
+    } else if let Some((blo, bhi)) = bars {
+        (blo.min(0.0), bhi)
+    } else {
+        (0.0, 1.0)
+    };
+
+    let lo = g.min.unwrap_or(auto_lo);
+    let hi = match g.max {
+        Some(m) if m > lo => m,
+        _ => auto_hi.max(lo + 0.001),
+    };
+    (lo, hi)
+}
+
+// ---------------------------------------------------------------------------
+// Values payload (`"tiles"`)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ValueTile {
+    pub label: String,
+    pub value: String,
+    pub unit: String,
+    pub color: (u8, u8, u8),
+    pub label_color: (u8, u8, u8),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ValuesData {
+    pub title: String,
+    pub tiles: Vec<ValueTile>,
+}
+
+pub fn parse_values_payload(json: &str) -> Option<ValuesData> {
+    let root: Value = serde_json::from_str(json).ok()?;
+    parse_values_value(&root)
+}
+
+fn parse_values_value(root: &Value) -> Option<ValuesData> {
+    let arr = root.get("tiles")?.as_array()?;
+    let color = |v: Option<&Value>, d: (u8, u8, u8)| {
+        v.and_then(|c| c.as_str())
+            .and_then(parse_hex_color)
+            .unwrap_or(d)
+    };
+    let tiles = arr
+        .iter()
+        .take(MAX_TILES)
+        .map(|t| {
+            // Accept numbers too, but HA is expected to send preformatted strings.
+            let value = match t.get("value") {
+                Some(Value::String(s)) => s.chars().take(MAX_TEXT_CHARS).collect(),
+                Some(Value::Number(n)) => n.to_string(),
+                _ => String::new(),
+            };
+            ValueTile {
+                label: short_text(t.get("label")),
+                value,
+                unit: short_text(t.get("unit")),
+                color: color(t.get("color"), (255, 255, 255)),
+                label_color: color(t.get("label_color"), (0x80, 0x80, 0x80)),
+            }
+        })
+        .collect();
+    Some(ValuesData {
+        title: short_text(root.get("title")),
+        tiles,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Weather payload (`"current"` / `"days"`), published by Home Assistant
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct HaWeatherDay {
+    pub temp_max: Option<f32>,
+    pub temp_min: Option<f32>,
+    pub condition: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HaWeather {
+    /// true = °F labels, false = °C. The sign never converts numbers.
+    pub imperial: bool,
+    pub current_temp: Option<f32>,
+    pub current_condition: String,
+    pub days: Vec<HaWeatherDay>,
+}
+
+pub fn parse_weather_payload(json: &str) -> Option<HaWeather> {
+    let root: Value = serde_json::from_str(json).ok()?;
+    parse_weather_value(&root)
+}
+
+fn parse_weather_value(root: &Value) -> Option<HaWeather> {
+    let current = root.get("current");
+    let days_val = root.get("days").and_then(|d| d.as_array());
+    if current.is_none() && days_val.is_none() {
+        return None;
+    }
+    let imperial = !root
+        .get("units")
+        .and_then(|u| u.as_str())
+        .map(|u| u.trim().eq_ignore_ascii_case("metric"))
+        .unwrap_or(false);
+    let days = days_val
+        .map(|arr| {
+            arr.iter()
+                .take(MAX_WEATHER_DAYS)
+                .map(|d| HaWeatherDay {
+                    temp_max: finite(d.get("temp_max")),
+                    temp_min: finite(d.get("temp_min")),
+                    condition: short_text(d.get("condition")),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(HaWeather {
+        imperial,
+        current_temp: current.and_then(|c| finite(c.get("temp"))),
+        current_condition: current
+            .map(|c| short_text(c.get("condition")))
+            .unwrap_or_default(),
+        days,
+    })
 }
 
 /// One stored topic.
@@ -243,6 +453,8 @@ pub struct FeedEntry {
     pub topic: String,
     pub payload: String,
     pub graph: Option<Arc<GraphData>>,
+    pub values: Option<Arc<ValuesData>>,
+    pub weather: Option<Arc<HaWeather>>,
     pub received: Instant,
 }
 
@@ -299,10 +511,14 @@ impl DataFeedStore {
         let Some(idx) = target.or(first_free) else {
             return PublishResult::Full;
         };
+        // Parse once here, by shape, so engines never touch JSON.
+        let root: Option<Value> = serde_json::from_str(payload).ok();
         let entry = FeedEntry {
             topic: topic.to_string(),
             payload: payload.to_string(),
-            graph: parse_graph_payload(payload).map(Arc::new),
+            graph: root.as_ref().and_then(parse_graph_value).map(Arc::new),
+            values: root.as_ref().and_then(parse_values_value).map(Arc::new),
+            weather: root.as_ref().and_then(parse_weather_value).map(Arc::new),
             received: Instant::now(),
         };
         self.slots[idx].store(Some(Arc::new(entry)));

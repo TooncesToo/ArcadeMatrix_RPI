@@ -24,6 +24,17 @@ pub struct WeatherEngine {
     last_units: String,
     offset_x: i32,
     offset_y: i32,
+    /// `source = ha`: forecasts come from a Home Assistant payload on the data
+    /// feed MQTT connection instead of an OpenWeatherMap HTTP fetch.
+    source_ha: bool,
+    topic: String,
+    ha_seen_generation: u64,
+    /// Inputs of the last HA build: payload, language, weekday (labels change at midnight).
+    ha_built: Option<(
+        std::sync::Arc<crate::core::data_feed::HaWeather>,
+        String,
+        u32,
+    )>,
 }
 
 impl WeatherEngine {
@@ -45,6 +56,10 @@ impl WeatherEngine {
             last_units: "metric".to_string(),
             offset_x: 0,
             offset_y: 0,
+            source_ha: false,
+            topic: HA_DEFAULT_TOPIC.to_string(),
+            ha_seen_generation: u64::MAX,
+            ha_built: None,
         }
     }
 
@@ -61,6 +76,48 @@ impl WeatherEngine {
         self.units = config.get_string("units", "metric");
         self.offset_x = config.get_int("offset_x", 0);
         self.offset_y = config.get_int("offset_y", 0);
+        self.source_ha = config.get_string("source", "owm").trim() == "ha";
+        let topic = config.get_string("topic", HA_DEFAULT_TOPIC);
+        self.topic = if topic.trim().is_empty() {
+            HA_DEFAULT_TOPIC.to_string()
+        } else {
+            topic.trim().to_string()
+        };
+        self.ha_seen_generation = u64::MAX;
+        self.ha_built = None;
+    }
+
+    /// HA mode: rebuild `forecasts` when the payload, language or day changed.
+    /// Allocates only on such a change, not per frame.
+    fn refresh_ha(&mut self, lang: &str) {
+        let store = crate::core::data_feed::data_feed();
+        let generation = store.generation();
+        let wday = chrono::Local::now()
+            .format("%w")
+            .to_string()
+            .parse::<u32>()
+            .unwrap_or(0);
+        let latest = if generation != self.ha_seen_generation {
+            self.ha_seen_generation = generation;
+            store.get(&self.topic).and_then(|e| e.weather.clone())
+        } else {
+            self.ha_built.as_ref().map(|b| b.0.clone())
+        };
+        let Some(w) = latest else {
+            if self.ha_built.take().is_some() || !self.forecasts.is_empty() {
+                self.forecasts.clear();
+                self.panorama = None;
+            }
+            return;
+        };
+        let unchanged = matches!(&self.ha_built,
+            Some((prev, l, d)) if std::sync::Arc::ptr_eq(prev, &w) && l == lang && *d == wday);
+        if unchanged {
+            return;
+        }
+        self.forecasts = ha_forecasts(&w, lang, wday);
+        self.panorama = None;
+        self.ha_built = Some((w, lang.to_string(), wday));
     }
 }
 
@@ -85,6 +142,7 @@ impl Engine for WeatherEngine {
 
     fn activate(&mut self) {
         self.last_fetch = None; // Force refresh on activation
+        self.ha_seen_generation = u64::MAX;
     }
 
     fn on_display_geometry_changed(&mut self, _geometry: &crate::core::types::DisplayGeometry) {
@@ -96,96 +154,128 @@ impl Engine for WeatherEngine {
     }
 
     fn render(&mut self, context: &mut EngineContext) {
-        if self.api_key.is_empty() || self.api_key == "API_KEY" {
-            self.base_renderer.render_text(
-                context.matrix,
-                "No API key",
-                0,
-                1,
-                0,
-                0,
-                Some((180, 80, 80)),
-                None,
-            );
-            return;
-        }
-        if self.city.is_empty() {
-            self.base_renderer.render_text(
-                context.matrix,
-                "No city",
-                0,
-                1,
-                0,
-                0,
-                Some((180, 80, 80)),
-                None,
-            );
-            return;
-        }
-
-        let (sys_lang, sys_unit) = {
-            let s = context.config.settings.read();
-            (s.system.lang.clone(), s.system.temp_unit.clone())
-        };
-
-        let active_lang = if !self.lang.is_empty() && self.lang != "system" {
-            self.lang.clone()
-        } else if !sys_lang.is_empty() {
-            sys_lang
-        } else {
-            "fr".to_string()
-        };
-
-        let active_units = if !self.units.is_empty() && self.units != "system" {
-            self.units.clone()
-        } else if sys_unit.eq_ignore_ascii_case("F") {
-            "imperial".to_string()
-        } else {
-            "metric".to_string()
-        };
-
-        if self.last_lang != active_lang || self.last_units != active_units {
-            self.last_lang = active_lang.clone();
-            self.last_units = active_units.clone();
-            self.last_fetch = None;
-            self.forecasts.clear();
-            self.panorama = None;
-        }
-
-        let should_fetch = self
-            .last_fetch
-            .map(|t| t.elapsed() > Duration::from_secs(1800))
-            .unwrap_or(true);
-
-        if should_fetch {
-            self.fetch_forecast(
-                &self.api_key.clone(),
-                &self.city.clone(),
-                &active_lang,
-                &active_units,
-            );
-        }
-
-        if self.forecasts.is_empty() {
-            let empty_text = if active_units.eq_ignore_ascii_case("imperial")
-                || active_units.eq_ignore_ascii_case("fahrenheit")
-                || active_units.eq_ignore_ascii_case("f")
-            {
-                "--°F"
-            } else {
-                "--°C"
+        if self.source_ha {
+            let (sys_lang, sys_unit) = {
+                let s = context.config.settings.read();
+                (s.system.lang.clone(), s.system.temp_unit.clone())
             };
-            self.base_renderer.render_text(
-                context.matrix,
-                empty_text,
-                0,
-                2,
-                self.offset_x,
-                self.offset_y,
-                None,
-                None,
-            );
-            return;
+            let lang = if !sys_lang.is_empty() {
+                sys_lang
+            } else {
+                "fr".to_string()
+            };
+            self.refresh_ha(&lang);
+            if self.forecasts.is_empty() {
+                // Same "no data yet" notice as the OpenWeatherMap path.
+                let empty_text = if sys_unit.eq_ignore_ascii_case("F") {
+                    "--°F"
+                } else {
+                    "--°C"
+                };
+                self.base_renderer.render_text(
+                    context.matrix,
+                    empty_text,
+                    0,
+                    2,
+                    self.offset_x,
+                    self.offset_y,
+                    None,
+                    None,
+                );
+                return;
+            }
+        } else {
+            if self.api_key.is_empty() || self.api_key == "API_KEY" {
+                self.base_renderer.render_text(
+                    context.matrix,
+                    "No API key",
+                    0,
+                    1,
+                    0,
+                    0,
+                    Some((180, 80, 80)),
+                    None,
+                );
+                return;
+            }
+            if self.city.is_empty() {
+                self.base_renderer.render_text(
+                    context.matrix,
+                    "No city",
+                    0,
+                    1,
+                    0,
+                    0,
+                    Some((180, 80, 80)),
+                    None,
+                );
+                return;
+            }
+
+            let (sys_lang, sys_unit) = {
+                let s = context.config.settings.read();
+                (s.system.lang.clone(), s.system.temp_unit.clone())
+            };
+
+            let active_lang = if !self.lang.is_empty() && self.lang != "system" {
+                self.lang.clone()
+            } else if !sys_lang.is_empty() {
+                sys_lang
+            } else {
+                "fr".to_string()
+            };
+
+            let active_units = if !self.units.is_empty() && self.units != "system" {
+                self.units.clone()
+            } else if sys_unit.eq_ignore_ascii_case("F") {
+                "imperial".to_string()
+            } else {
+                "metric".to_string()
+            };
+
+            if self.last_lang != active_lang || self.last_units != active_units {
+                self.last_lang = active_lang.clone();
+                self.last_units = active_units.clone();
+                self.last_fetch = None;
+                self.forecasts.clear();
+                self.panorama = None;
+            }
+
+            let should_fetch = self
+                .last_fetch
+                .map(|t| t.elapsed() > Duration::from_secs(1800))
+                .unwrap_or(true);
+
+            if should_fetch {
+                self.fetch_forecast(
+                    &self.api_key.clone(),
+                    &self.city.clone(),
+                    &active_lang,
+                    &active_units,
+                );
+            }
+
+            if self.forecasts.is_empty() {
+                let empty_text = if active_units.eq_ignore_ascii_case("imperial")
+                    || active_units.eq_ignore_ascii_case("fahrenheit")
+                    || active_units.eq_ignore_ascii_case("f")
+                {
+                    "--°F"
+                } else {
+                    "--°C"
+                };
+                self.base_renderer.render_text(
+                    context.matrix,
+                    empty_text,
+                    0,
+                    2,
+                    self.offset_x,
+                    self.offset_y,
+                    None,
+                    None,
+                );
+                return;
+            }
         }
 
         let mw = context.matrix.width();
@@ -913,6 +1003,66 @@ impl WeatherEngine {
     }
 }
 
+/// Default topic of the Home Assistant weather payload (`source = ha`).
+pub const HA_DEFAULT_TOPIC: &str = "arcadematrix/weather/local";
+
+fn ha_temp(v: Option<f32>, unit_sym: &str) -> String {
+    match v {
+        Some(t) => format!("{}{}", t.round() as i64, unit_sym),
+        None => format!("--{}", unit_sym),
+    }
+}
+
+/// Builds the per-day slides from a Home Assistant weather payload, filling
+/// the same `DayForecast` fields the OpenWeatherMap provider fills: day 0 =
+/// today with the live station temperature; labels from the firmware's own
+/// day logic; conditions mapped to the OWM icon codes and localized labels.
+pub fn ha_forecasts(
+    w: &crate::core::data_feed::HaWeather,
+    lang: &str,
+    current_wday: u32,
+) -> Vec<DayForecast> {
+    use crate::core::i18n::{self, Lang};
+    let l = Lang::from_code(lang);
+    let unit_sym = if w.imperial { "°F" } else { "°C" };
+    let mut days: Vec<crate::core::data_feed::HaWeatherDay> = w.days.clone();
+    if days.is_empty() && (w.current_temp.is_some() || !w.current_condition.is_empty()) {
+        days.push(Default::default());
+    }
+    days.iter()
+        .enumerate()
+        .map(|(i, d)| {
+            let cond_raw = if i == 0 && d.condition.trim().is_empty() {
+                w.current_condition.as_str()
+            } else {
+                d.condition.as_str()
+            };
+            let condition = i18n::ha_weather_condition(l, cond_raw)
+                .map(|(short, _long)| short.to_string())
+                .unwrap_or_else(|| cond_raw.to_string());
+            let temp = if i == 0 {
+                w.current_temp.or(d.temp_max)
+            } else {
+                d.temp_max
+            };
+            DayForecast {
+                label: i18n::weather_day_label(
+                    l,
+                    ((current_wday as usize) + i) % 7,
+                    i == 0,
+                    i == 1,
+                )
+                .to_string(),
+                temp: ha_temp(temp, unit_sym),
+                temp_min: ha_temp(d.temp_min, unit_sym),
+                temp_max: ha_temp(d.temp_max, unit_sym),
+                condition,
+                icon: i18n::ha_weather_icon(cond_raw).to_string(),
+            }
+        })
+        .collect()
+}
+
 use crate::core::engine_contract::{
     Capabilities, ConfigSchema, EngineDescriptor, EngineMetadata, Requirements,
 };
@@ -935,11 +1085,43 @@ fn register_weather_engine() -> EngineDescriptor {
         schema: ConfigSchema {
             fields: vec![
                 crate::core::engine_contract::ConfigField {
+                    id: "source",
+                    field_type: crate::core::engine_contract::ConfigType::Options,
+                    label: "Source",
+                    description: "Where the forecast comes from",
+                    default_value: "owm",
+                    options: Some(vec![
+                        crate::core::engine_contract::ConfigOption {
+                            label: "OpenWeatherMap",
+                            value: "owm",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "Home Assistant (MQTT)",
+                            value: "ha",
+                        },
+                    ]),
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "topic",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "MQTT Topic",
+                    description:
+                        "Topic of the Home Assistant weather payload on the Data Feed MQTT broker",
+                    default_value: HA_DEFAULT_TOPIC,
+                    visible_when: Some("source=ha"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
                     id: "api_key",
                     field_type: crate::core::engine_contract::ConfigType::String,
                     label: "API Key",
                     description: "OpenWeatherMap API Key",
                     default_value: "",
+                    visible_when: Some("source=owm"),
                     validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
                     ..Default::default()
                 },
@@ -949,6 +1131,7 @@ fn register_weather_engine() -> EngineDescriptor {
                     label: "City",
                     description: "City name for forecast (e.g. Paris,FR or for US: Tucson,AZ,US)",
                     default_value: "",
+                    visible_when: Some("source=owm"),
                     validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
                     ..Default::default()
                 },
@@ -968,6 +1151,7 @@ fn register_weather_engine() -> EngineDescriptor {
                             value: "imperial",
                         },
                     ]),
+                    visible_when: Some("source=owm"),
                     validation_policy:
                         crate::core::engine_contract::ValidationPolicy::FallbackDefault,
                     ..Default::default()

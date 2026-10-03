@@ -49,6 +49,7 @@ impl EngineRegistry {
             "dashboard" => 13,
             "fighter" => 14,
             "graph" => 16,
+            "values" => 17,
             _ => 0,
         }
     }
@@ -71,6 +72,7 @@ impl EngineRegistry {
             14 => Some("fighter"),
             15 => Some("gnews"),
             16 => Some("graph"),
+            17 => Some("values"),
             _ => None,
         }
     }

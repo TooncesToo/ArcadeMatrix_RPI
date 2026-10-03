@@ -118,7 +118,7 @@ A second MQTT connection, independent of the `"mqtt"` block above. It **never ta
 | `topic_prefix` | `String` | The client subscribes to `<topic_prefix>/#` (default `arcadematrix`). |
 
 - The MQTT client id is `<hostname>-data`, so several signs can share one broker.
-- Up to 8 topics are kept, 4096 bytes per payload (larger payloads are dropped). Publish **retained** so the value is there right after a restart.
+- Up to 8 topics are kept, 8192 bytes per payload (larger payloads are dropped). Publish **retained** so the value is there right after a restart.
 - `GET /api/stats` reports `data_mqtt_connected` and `data_mqtt_topics`.
 - Changing this block restarts the application, like the `"mqtt"` block.
 
@@ -282,12 +282,25 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 ### Engine: `weather`
 | Field | Type | Default | Options | Description |
 | :--- | :--- | :--- | :--- | :--- |
+| `source` | `Options` | `owm` | `owm`, `ha` | `owm` = OpenWeatherMap over HTTP. `ha` = "Home Assistant (MQTT)": a retained payload on the `data_mqtt` broker; `api_key`, `city` and `units` are then hidden and unused. |
+| `topic` | `String` | `arcadematrix/weather/local` | Text | Only with `source = ha`: topic of the weather payload. |
 | `api_key` | `String` | `""` | Free API key | Your OpenWeatherMap API Key (free tier at [openweathermap.org](https://home.openweathermap.org/users/sign_up)). |
 | `city` | `String` | `""` | Text | City location (see formatting guide below). |
 | `units` | `Options` | `metric` | `metric`, `imperial` | Temperature unit: `metric` for Celsius (°C) or `imperial` for Fahrenheit (°F). |
 | `lang` | `Options` | `en` | `en`, `fr`, `es` | Language code for day labels (TODAY / AUJ. / HOY). |
 | `offset_x` | `int` | `0` | `-64` to `64` | Horizontal pixel shift. |
 | `offset_y` | `int` | `0` | `-32` to `32` | Vertical pixel shift. |
+
+With `source = ha` the sign does no HTTP fetch at all. Payload (temperatures already in the unit HA uses; the sign never converts):
+
+```json
+{"v":1,"units":"imperial",
+ "current":{"temp":75,"condition":"clear-night"},
+ "days":[{"temp_max":89,"temp_min":70,"condition":"sunny"},
+         {"temp_max":90,"temp_min":71,"condition":"partlycloudy"}]}
+```
+
+`units`: `imperial` = °F labels, `metric` = °C. Day 0 uses the live `current.temp` as its temperature; up to 5 days are used. HA conditions (sunny, clear-night, partlycloudy, cloudy, fog, exceptional, rainy, pouring, lightning, lightning-rainy, snowy, snowy-rainy, hail, windy, windy-variant) map to the existing icons and get translated labels.
 
 #### How to Format the `city` Field on OpenWeatherMap
 OpenWeatherMap uses the ISO 3166 country code (and 2-letter state code for the US) to disambiguate locations:
@@ -409,6 +422,9 @@ Payload (v1):
 | `stack` | `true`: series stacked bottom-up in order. `false`: overlaid, later series on top. |
 | `bands` | Background column ranges in slot indices `[from, to)`, e.g. on-peak hours. |
 | `marks` | Dotted vertical line at the left edge of slot `at`, e.g. midnight. |
+| `min` | Bottom of the y scale (default `0`). With `max` absent or `<= min` the top is automatic. With any line series the automatic range is the data range padded by 5 % (at least 0.5) each side. |
+| `style` (per series) | `"bar"` (default) or `"line"`. Bars grow from the zero line (negatives go down). Lines are 1 px steps drawn on top; `null` leaves a gap. |
+| `yaxis` | `true`: min and max printed at the left edge in a 3x5 font (64 px tall panels only). |
 | colors | `"#RRGGBB"`. |
 
 Home Assistant example (an automation action publishing a retained payload every 15 minutes):
@@ -423,6 +439,22 @@ Home Assistant example (an automation action publishing a retained payload every
           "series": [{"label": "AC", "color": "#2080FF",
                       "data": state_attr('sensor.ac_history', 'values')}]} | to_json }}
 ```
+
+### Engine: `values` (Data Feed Values)
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `topic` | `String` | `arcadematrix/values/energy` | Full topic of the values payload on the `data_mqtt` broker. |
+| `show_title` | `Boolean` | `true` | Title row on top when the layout has room (1 to 3 tiles). |
+
+1 to 4 tiles of preformatted text: the sign never does math.
+
+```json
+{"v":1,"title":"HOME",
+ "tiles":[{"label":"DN","value":"76","unit":"°F","color":"#2060FF"},
+          {"label":"AC 24H","value":"17.0","unit":"h","color":"#FFB000","label_color":"#808080"}]}
+```
+
+1-3 tiles share the width (value as large as fits, label above); 4 tiles form a 2x2 grid (label left, value right, no title). A value too wide for its cell drops its unit first, then is truncated. Shows `NO DATA` until the first payload.
 
 ---
 
