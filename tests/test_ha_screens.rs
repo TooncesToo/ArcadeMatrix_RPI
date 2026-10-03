@@ -229,10 +229,10 @@ fn fit_rule_drops_unit_then_truncates() {
     // Too tall for G3 in 16 rows -> G2.
     let f = fit_value("2.8", "kW", &[3, 2, 1], 128, 16);
     assert_eq!(f.scale, 2);
-    // Grid cell: G1 only. "31.2"+gap+"kWh"(tiny) = 23+1+11 = 35.
-    let f = fit_value("31.2", "kWh", &[1], 35, 16);
+    // Grid cell: G1 only. "31.2"+gap+"kWh"(tiny) = 23+2+11 = 36.
+    let f = fit_value("31.2", "kWh", &[1], 36, 16);
     assert!(f.show_unit);
-    let f = fit_value("31.2", "kWh", &[1], 34, 16);
+    let f = fit_value("31.2", "kWh", &[1], 35, 16);
     assert_eq!((f.show_unit, f.chars), (false, 4));
     let f = fit_value("123456", "", &[1], 20, 16);
     assert_eq!((f.show_unit, f.chars), (false, 3)); // 3 chars = 17 px
@@ -257,7 +257,7 @@ fn values_grid_positions_on_128x32() {
 
 #[test]
 fn six_char_label_fits_grid_with_unit() {
-    // "AC 24H" (23 px tiny) + 2 + "17.0" (23) + 1 + "h" (3) = 52 <= 62 px inner cell.
+    // "AC 24H" (23 px tiny) + 2 + "17.0" (23) + 2 + "h" (3) = 53 <= 62 px inner cell.
     let aw = 62 - tiny_text_width("AC 24H") - 2;
     let f = fit_value("17.0", "h", &[1], aw, 16);
     assert!(f.show_unit && f.chars == 4);
@@ -320,28 +320,57 @@ fn weather_payload_to_day_forecasts() {
     assert!(w.imperial);
     assert_eq!(w.days.len(), 5);
     let f = ha_forecasts(&w, "en", 5); // Friday
-    assert_eq!(f.len(), 5);
-    assert_eq!(f[0].label, "TODAY");
-    assert_eq!(f[0].temp, "75°F"); // live station reading
+    assert_eq!(f.len(), 6); // NOW + 5 days
+                            // NOW page: live reading (white line 1) + humidity / wind (grey line 2).
+    assert!(f[0].is_now);
+    assert_eq!(f[0].label, "NOW");
+    assert_eq!(f[0].temp_min, "75°F");
+    assert_eq!(f[0].temp_max, "47% 7mph");
+    assert_eq!(f[0].icon, "01n"); // current.condition = clear-night
+    assert!(f[0].condition.is_empty());
+    assert!(!f[1].is_now);
+    assert_eq!(f[1].label, "TODAY");
+    assert_eq!(f[1].temp, "75°F"); // live station reading
     assert_eq!(
-        (f[0].temp_min.as_str(), f[0].temp_max.as_str()),
+        (f[1].temp_min.as_str(), f[1].temp_max.as_str()),
         ("70°F", "89°F")
     );
-    assert_eq!(f[0].condition, "Sunny");
-    assert_eq!(f[0].icon, "01d");
-    assert_eq!(f[1].icon, "02d");
-    assert_eq!(f[2].condition, "Storm+rain");
-    assert_eq!(f[2].icon, "11d");
-    assert_eq!(f[3].icon, "03d");
-    assert_eq!(f[4].condition, "weird");
+    assert_eq!(f[1].condition, "Sunny");
+    assert_eq!(f[1].icon, "01d");
+    assert_eq!(f[2].icon, "02d");
+    assert_eq!(f[3].condition, "Storm+rain");
+    assert_eq!(f[3].icon, "11d");
     assert_eq!(f[4].icon, "03d");
+    assert_eq!(f[5].condition, "weird");
+    assert_eq!(f[5].icon, "03d");
     let fr = ha_forecasts(&w, "fr", 5);
-    assert_eq!(fr[0].condition, "Soleil");
+    assert_eq!(fr[0].label, "ACTU.");
+    assert_eq!(fr[1].condition, "Soleil");
+    assert_eq!(ha_forecasts(&w, "es", 5)[0].label, "AHORA");
     let metric = parse_weather_payload(r#"{"units":"metric","current":{"temp":21}}"#).unwrap();
     let m = ha_forecasts(&metric, "en", 0);
-    assert_eq!(m.len(), 1);
-    assert_eq!(m[0].temp, "21°C");
-    assert_eq!(m[0].temp_max, "--°C");
+    assert_eq!(m.len(), 2); // NOW + today built from current
+    assert_eq!(m[0].temp_min, "21°C");
+    assert_eq!(m[1].temp, "21°C");
+    assert_eq!(m[1].temp_max, "--°C");
+}
+
+#[test]
+fn now_page_second_line_falls_back() {
+    let only_hum =
+        parse_weather_payload(r#"{"current":{"temp":60,"humidity":30.4,"condition":"rainy"}}"#)
+            .unwrap();
+    assert_eq!(ha_forecasts(&only_hum, "en", 0)[0].temp_max, "30%");
+    let only_wind =
+        parse_weather_payload(r#"{"current":{"temp":60,"wind":12,"wind_unit":"km/h"}}"#).unwrap();
+    assert_eq!(ha_forecasts(&only_wind, "en", 0)[0].temp_max, "12km/h");
+    let neither = parse_weather_payload(r#"{"current":{"temp":60,"condition":"rainy"}}"#).unwrap();
+    assert_eq!(ha_forecasts(&neither, "en", 0)[0].temp_max, "Rain");
+    // No live temperature -> no NOW page.
+    let no_temp = parse_weather_payload(r#"{"days":[{"temp_max":70,"temp_min":50}]}"#).unwrap();
+    let f = ha_forecasts(&no_temp, "en", 0);
+    assert_eq!(f.len(), 1);
+    assert!(!f[0].is_now);
 }
 
 #[test]
@@ -351,8 +380,8 @@ fn day0_condition_falls_back_to_current() {
     )
     .unwrap();
     let f = ha_forecasts(&w, "en", 1);
-    assert_eq!(f[0].condition, "Rain");
-    assert_eq!(f[0].icon, "10d");
+    assert_eq!(f[1].condition, "Rain");
+    assert_eq!(f[1].icon, "10d");
 }
 
 #[test]
@@ -563,7 +592,17 @@ fn render_v2_previews() {
         engine.activate();
         engine.update(&mut ctx);
         engine.render(&mut ctx);
-        save(&m, &dir, "weather_ha");
+        save(&m, &dir, "weather_ha"); // first page = NOW
+                                      // Second page (TODAY) after one 5 s dwell + 1 s slide.
+        std::thread::sleep(std::time::Duration::from_millis(6300));
+        let mut ctx = EngineContext {
+            matrix: &mut m,
+            config: &config,
+        };
+        ctx.matrix.clear();
+        engine.update(&mut ctx);
+        engine.render(&mut ctx);
+        save(&m, &dir, "weather_ha_today");
     }
     let _ = std::fs::remove_dir_all(&cfgdir);
 }

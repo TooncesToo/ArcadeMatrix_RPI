@@ -470,10 +470,20 @@ impl WeatherEngine {
             let base_x = i as u32 * mw;
             let font = self.base_renderer.font();
 
-            let color_morning = (120, 200, 255);
-            let color_afternoon = (255, 150, 50);
             let color_label = (180, 180, 255);
             let color_desc = (210, 210, 210);
+            // The HA "NOW" page draws the live reading in white and the
+            // humidity / wind line in the condition grey.
+            let color_morning = if slide.is_now {
+                (255, 255, 255)
+            } else {
+                (120, 200, 255)
+            };
+            let color_afternoon = if slide.is_now {
+                color_desc
+            } else {
+                (255, 150, 50)
+            };
 
             if mw >= 256 && mh >= 64 {
                 // --- 256x64 Ultra-Widescreen HD Layout ---
@@ -501,6 +511,7 @@ impl WeatherEngine {
 
                 let (_, min_w, _) = font.get_pixel_map(&slide.temp_min, 2.0);
                 let (_, max_w, _) = font.get_pixel_map(&slide.temp_max, 2.0);
+                let max_w = if slide.is_now { 0 } else { max_w };
                 let right_x = temp_x + min_w.max(max_w) + 18;
 
                 self.draw_arcade_text(
@@ -548,6 +559,7 @@ impl WeatherEngine {
 
                 let (_, min_w, _) = font.get_pixel_map(&slide.temp_min, 1.0);
                 let (_, max_w, _) = font.get_pixel_map(&slide.temp_max, 1.0);
+                let max_w = if slide.is_now { 0 } else { max_w };
                 let mut right_x = temp_x + min_w.max(max_w) + 6;
                 if right_x < base_x as i32 + 60 + offset_x {
                     right_x = base_x as i32 + 60 + offset_x;
@@ -624,6 +636,7 @@ impl WeatherEngine {
 
                 let (_, min_w, _) = font.get_pixel_map(&slide.temp_min, 2.0);
                 let (_, max_w, _) = font.get_pixel_map(&slide.temp_max, 2.0);
+                let max_w = if slide.is_now { 0 } else { max_w };
                 let mut right_x = temp_x + min_w.max(max_w) + 8;
                 if right_x < base_x as i32 + 72 + offset_x {
                     right_x = base_x as i32 + 72 + offset_x;
@@ -1029,38 +1042,58 @@ pub fn ha_forecasts(
     if days.is_empty() && (w.current_temp.is_some() || !w.current_condition.is_empty()) {
         days.push(Default::default());
     }
-    days.iter()
-        .enumerate()
-        .map(|(i, d)| {
-            let cond_raw = if i == 0 && d.condition.trim().is_empty() {
-                w.current_condition.as_str()
-            } else {
-                d.condition.as_str()
-            };
-            let condition = i18n::ha_weather_condition(l, cond_raw)
-                .map(|(short, _long)| short.to_string())
-                .unwrap_or_else(|| cond_raw.to_string());
-            let temp = if i == 0 {
-                w.current_temp.or(d.temp_max)
-            } else {
-                d.temp_max
-            };
-            DayForecast {
-                label: i18n::weather_day_label(
-                    l,
-                    ((current_wday as usize) + i) % 7,
-                    i == 0,
-                    i == 1,
-                )
+    let mut slides: Vec<DayForecast> = Vec::with_capacity(days.len() + 1);
+    // "NOW" page first: the live station reading, humidity and wind.
+    if let Some(t) = w.current_temp {
+        let cond_label = i18n::ha_weather_condition(l, &w.current_condition)
+            .map(|(short, _)| short.to_string())
+            .unwrap_or_else(|| w.current_condition.clone());
+        let hum = w.humidity.map(|h| format!("{}%", h.round() as i64));
+        let wind = w
+            .wind
+            .map(|v| format!("{}{}", v.round() as i64, w.wind_unit.trim()));
+        let line2 = match (hum, wind) {
+            (Some(h), Some(v)) => format!("{} {}", h, v),
+            (Some(h), None) => h,
+            (None, Some(v)) => v,
+            (None, None) => cond_label,
+        };
+        slides.push(DayForecast {
+            label: i18n::weather_now_label(l).to_string(),
+            temp: ha_temp(Some(t), unit_sym),
+            temp_min: ha_temp(Some(t), unit_sym),
+            temp_max: line2,
+            condition: String::new(),
+            icon: i18n::ha_weather_icon(&w.current_condition).to_string(),
+            is_now: true,
+        });
+    }
+    slides.extend(days.iter().enumerate().map(|(i, d)| {
+        let cond_raw = if i == 0 && d.condition.trim().is_empty() {
+            w.current_condition.as_str()
+        } else {
+            d.condition.as_str()
+        };
+        let condition = i18n::ha_weather_condition(l, cond_raw)
+            .map(|(short, _long)| short.to_string())
+            .unwrap_or_else(|| cond_raw.to_string());
+        let temp = if i == 0 {
+            w.current_temp.or(d.temp_max)
+        } else {
+            d.temp_max
+        };
+        DayForecast {
+            label: i18n::weather_day_label(l, ((current_wday as usize) + i) % 7, i == 0, i == 1)
                 .to_string(),
-                temp: ha_temp(temp, unit_sym),
-                temp_min: ha_temp(d.temp_min, unit_sym),
-                temp_max: ha_temp(d.temp_max, unit_sym),
-                condition,
-                icon: i18n::ha_weather_icon(cond_raw).to_string(),
-            }
-        })
-        .collect()
+            temp: ha_temp(temp, unit_sym),
+            temp_min: ha_temp(d.temp_min, unit_sym),
+            temp_max: ha_temp(d.temp_max, unit_sym),
+            condition,
+            icon: i18n::ha_weather_icon(cond_raw).to_string(),
+            is_now: false,
+        }
+    }));
+    slides
 }
 
 use crate::core::engine_contract::{

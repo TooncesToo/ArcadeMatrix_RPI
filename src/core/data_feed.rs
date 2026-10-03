@@ -406,6 +406,9 @@ pub struct HaWeather {
     pub imperial: bool,
     pub current_temp: Option<f32>,
     pub current_condition: String,
+    pub humidity: Option<f32>,
+    pub wind: Option<f32>,
+    pub wind_unit: String,
     pub days: Vec<HaWeatherDay>,
 }
 
@@ -442,6 +445,11 @@ fn parse_weather_value(root: &Value) -> Option<HaWeather> {
         current_temp: current.and_then(|c| finite(c.get("temp"))),
         current_condition: current
             .map(|c| short_text(c.get("condition")))
+            .unwrap_or_default(),
+        humidity: current.and_then(|c| finite(c.get("humidity"))),
+        wind: current.and_then(|c| finite(c.get("wind"))),
+        wind_unit: current
+            .map(|c| short_text(c.get("wind_unit")))
             .unwrap_or_default(),
         days,
     })

@@ -6,6 +6,9 @@ pub struct DayForecast {
     pub temp_max: String,
     pub condition: String,
     pub icon: String,
+    /// Home Assistant "NOW" page: `temp_min` holds the live reading (drawn
+    /// white), `temp_max` the humidity / wind line (drawn in the condition grey).
+    pub is_now: bool,
 }
 
 pub trait WeatherProvider: Send + Sync {

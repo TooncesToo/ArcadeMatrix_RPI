@@ -202,6 +202,7 @@ impl OpenWeatherMapProvider {
                                 .get(0)
                                 .map(|w| w.icon.clone())
                                 .unwrap_or_default(),
+                            is_now: false,
                         }
                     })
                 })

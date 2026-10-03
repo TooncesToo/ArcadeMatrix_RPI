@@ -277,12 +277,12 @@ Avec `source = ha`, le panneau ne fait aucune requête HTTP. Message (températu
 
 ```json
 {"v":1,"units":"imperial",
- "current":{"temp":75,"condition":"clear-night"},
+ "current":{"temp":75,"condition":"clear-night","humidity":47,"wind":7,"wind_unit":"mph"},
  "days":[{"temp_max":89,"temp_min":70,"condition":"sunny"},
          {"temp_max":90,"temp_min":71,"condition":"partlycloudy"}]}
 ```
 
-`units` : `imperial` = °F, `metric` = °C. Le jour 0 utilise la mesure en direct `current.temp` ; jusqu'à 5 jours. Les conditions HA standard sont associées aux icônes existantes et traduites.
+Le cycle commence par une page ACTU. : la mesure en direct `current.temp`, puis humidité et vent (`current.humidity`, `current.wind`, `current.wind_unit`). `units` : `imperial` = °F, `metric` = °C. Le jour 0 utilise la mesure en direct `current.temp` ; jusqu'à 5 jours. Les conditions HA standard sont associées aux icônes existantes et traduites.
 
 #### Formatage du champ `city` sur OpenWeatherMap
 OpenWeatherMap utilise le code pays ISO 3166 (et le code d'état à 2 lettres pour les États-Unis) :

@@ -295,12 +295,12 @@ With `source = ha` the sign does no HTTP fetch at all. Payload (temperatures alr
 
 ```json
 {"v":1,"units":"imperial",
- "current":{"temp":75,"condition":"clear-night"},
+ "current":{"temp":75,"condition":"clear-night","humidity":47,"wind":7,"wind_unit":"mph"},
  "days":[{"temp_max":89,"temp_min":70,"condition":"sunny"},
          {"temp_max":90,"temp_min":71,"condition":"partlycloudy"}]}
 ```
 
-`units`: `imperial` = °F labels, `metric` = °C. Day 0 uses the live `current.temp` as its temperature; up to 5 days are used. HA conditions (sunny, clear-night, partlycloudy, cloudy, fog, exceptional, rainy, pouring, lightning, lightning-rainy, snowy, snowy-rainy, hail, windy, windy-variant) map to the existing icons and get translated labels.
+The cycle starts with a NOW page: the live `current.temp`, then humidity and wind (`current.humidity`, `current.wind`, `current.wind_unit`). `units`: `imperial` = °F labels, `metric` = °C. Day 0 uses the live `current.temp` as its temperature; up to 5 days are used. HA conditions (sunny, clear-night, partlycloudy, cloudy, fog, exceptional, rainy, pouring, lightning, lightning-rainy, snowy, snowy-rainy, hail, windy, windy-variant) map to the existing icons and get translated labels.
 
 #### How to Format the `city` Field on OpenWeatherMap
 OpenWeatherMap uses the ISO 3166 country code (and 2-letter state code for the US) to disambiguate locations:
