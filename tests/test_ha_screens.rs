@@ -570,8 +570,22 @@ fn now_page_widest_line_fits_128() {
     let grey = |x: u32| (0..32).any(|y| px(&m, x, y) == (210, 210, 210));
     let last = (0..128).rev().find(|&x| grey(x)).expect("line 2 drawn");
     assert!(last < 127, "line 2 ends at x={}", last);
+    // Right-aligned: line 2 ends on x=123 and starts at 123 - 58 = 65; the live temp
+    // "104°F" ends on x=123 too, and "NOW" (label) sits at x=32 on row 4 without touching it.
+    assert_eq!(last, 123);
+    let first = (0..128).find(|&x| grey(x)).unwrap();
+    assert_eq!(first, 65);
+    let (lx0, _, lx1, _) = bbox(&m, (180, 180, 255)).unwrap();
+    let (wx0, _, _, _) = bbox(&m, (255, 255, 255)).unwrap();
+    assert!(
+        lx0 == 32 && lx1 < wx0,
+        "label {}..{} vs temp from {}",
+        lx0,
+        lx1,
+        wx0
+    );
     if let Ok(out) = std::env::var("HA_PREVIEW_DIR") {
-        save(&m, &out, "weather_ha_now_34_12mph");
+        save(&m, &out, "weather_128_now_worst");
     }
 }
 
@@ -645,15 +659,35 @@ fn weather_pages_match_esp32_positions() {
     // Sun icon at scale 2: centre (8 + 24, 8 + 24) is yellow.
     assert_eq!(px(&m, 32, 32), (255, 255, 0));
 
-    // 128x32: temps size 1 at temp_x = 4 + 28 = 32, rows 4 and 18;
-    // label at right_x = max(32 + 4*6 + 6, 60) = 62, row 4.
+    // 128x32 (addendum 6): temps right-aligned to x=124 (last pixel 123), rows 4 and 18;
+    // label at mid_x = 4 + 24 + 4 = 32, row 4.
     let m = render_weather_day(today, 128, 32, "esp_128");
-    let (hx0, hy0, _, _) = bbox(&m, HIGH).unwrap();
-    assert_eq!((hx0, hy0), (32, 4));
-    let (lx0, ly0, _, _) = bbox(&m, LOW).unwrap();
-    assert_eq!((lx0, ly0), (32, 18));
+    let (_, hy0, hx1, _) = bbox(&m, HIGH).unwrap();
+    assert_eq!((hx1, hy0), (123, 4));
+    let (_, ly0, lx1, _) = bbox(&m, LOW).unwrap();
+    assert_eq!((lx1, ly0), (123, 18));
     let (lab_x0, lab_y0, _, _) = bbox(&m, LABEL).unwrap();
-    assert_eq!((lab_x0, lab_y0), (62, 4));
+    assert_eq!((lab_x0, lab_y0), (32, 4));
+    // Long condition "Partly cloudy" doesn't fit 65 px, so the short "Pt cloudy" is drawn.
+    let pc = render_weather_day(
+        r#"{"units":"imperial","days":[{"temp_max":89,"temp_min":70,"condition":"partlycloudy"}]}"#,
+        128,
+        32,
+        "esp_128_pc",
+    );
+    let (cx0, _, cx1, _) = bbox(&pc, (210, 210, 210)).unwrap();
+    assert_eq!((cx0, cx1), (32, 32 + 53 - 1));
+    if let Ok(out) = std::env::var("HA_PREVIEW_DIR") {
+        save(&m, &out, "weather_128_today");
+        save(&pc, &out, "weather_128_pcloudy");
+        let now = render_weather_day(
+            r#"{"units":"imperial","current":{"temp":75,"condition":"clear-night","humidity":47,"wind":7,"wind_unit":"mph"},"days":[{"temp_max":89,"temp_min":70,"condition":"sunny"}]}"#,
+            128,
+            32,
+            "esp_128_now",
+        );
+        save(&now, &out, "weather_128_now");
+    }
 }
 
 #[test]
