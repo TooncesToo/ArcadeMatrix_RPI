@@ -293,12 +293,12 @@ Con `source = ha` el panel no hace ninguna petición HTTP. Mensaje (temperaturas
 
 ```json
 {"v":1,"units":"imperial",
- "current":{"temp":75,"condition":"clear-night","humidity":47,"wind":7,"wind_unit":"mph"},
+ "current":{"temp":75,"condition":"clear-night","humidity":47,"wind":7,"wind_unit":"mph","wind_dir":"NE"},
  "days":[{"temp_max":89,"temp_min":70,"condition":"sunny"},
          {"temp_max":90,"temp_min":71,"condition":"partlycloudy"}]}
 ```
 
-El ciclo empieza con una página AHORA: la lectura en vivo `current.temp`, luego humedad y viento (`current.humidity`, `current.wind`, `current.wind_unit`). `units`: `imperial` = °F, `metric` = °C. El día 0 usa la lectura en vivo `current.temp`; hasta 5 días. Las condiciones estándar de HA se asocian a los iconos existentes y se traducen.
+El ciclo empieza con una página AHORA: la lectura en vivo `current.temp`, luego humedad y viento (`current.humidity`, `current.wind_dir`, `current.wind`, `current.wind_unit`, p. ej. "41%  NE 9mph"; si la línea no cabe se quita primero la dirección). `units`: `imperial` = °F, `metric` = °C. El día 0 usa la lectura en vivo `current.temp`; hasta 5 días. Las condiciones estándar de HA se asocian a los iconos existentes y se traducen.
 
 En °F la máxima se muestra encima de la mínima (convención estadounidense).
 
@@ -426,7 +426,7 @@ Formato del mensaje (v1):
 | `style` (por serie) | `"bar"` (por defecto) o `"line"`. Las barras parten de la línea cero (negativos hacia abajo). Las líneas (1 px, escalonadas) se dibujan encima; `null` = hueco. |
 | `yaxis` | `true`: mínimo y máximo a la izquierda en fuente 3x5 (solo paneles de 64 px de alto). |
 | `summary_color` | `"#RRGGBB"` opcional para el resumen del encabezado (por defecto: el color de la primera serie). |
-| `legend` | Opcional, hasta 4 elementos `{"text","color"}` en fuente 3x5 bajo el encabezado, solo en paneles de al menos 64 px de alto. Los que no caben se quitan desde el final. |
+| `legend` | Opcional, hasta 4 elementos `{"text","color"}` en fuente 3x5 a lo largo del borde inferior, solo en paneles de al menos 64 px de alto. Los que no caben se quitan desde el final. |
 | colores | `"#RRGGBB"`. |
 
 Ejemplo de Home Assistant (acción de automatización que publica un mensaje retained cada 15 minutos):

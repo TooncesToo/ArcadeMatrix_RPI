@@ -216,6 +216,7 @@ impl OpenWeatherMapProvider {
                                 .map(|w| w.icon.clone())
                                 .unwrap_or_default(),
                             is_now: false,
+                            now_line2_short: String::new(),
                         }
                     })
                 })

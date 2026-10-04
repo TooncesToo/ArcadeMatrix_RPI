@@ -309,12 +309,12 @@ With `source = ha` the sign does no HTTP fetch at all. Payload (temperatures alr
 
 ```json
 {"v":1,"units":"imperial",
- "current":{"temp":75,"condition":"clear-night","humidity":47,"wind":7,"wind_unit":"mph"},
+ "current":{"temp":75,"condition":"clear-night","humidity":47,"wind":7,"wind_unit":"mph","wind_dir":"NE"},
  "days":[{"temp_max":89,"temp_min":70,"condition":"sunny"},
          {"temp_max":90,"temp_min":71,"condition":"partlycloudy"}]}
 ```
 
-The cycle starts with a NOW page: the live `current.temp`, then humidity and wind (`current.humidity`, `current.wind`, `current.wind_unit`). `units`: `imperial` = °F labels, `metric` = °C. Day 0 uses the live `current.temp` as its temperature; up to 5 days are used. HA conditions (sunny, clear-night, partlycloudy, cloudy, fog, exceptional, rainy, pouring, lightning, lightning-rainy, snowy, snowy-rainy, hail, windy, windy-variant) map to the existing icons and get translated labels.
+The cycle starts with a NOW page: the live `current.temp`, then humidity and wind (`current.humidity`, `current.wind_dir`, `current.wind`, `current.wind_unit`, e.g. "41%  NE 9mph"; the direction is dropped first if the line doesn't fit). `units`: `imperial` = °F labels, `metric` = °C. Day 0 uses the live `current.temp` as its temperature; up to 5 days are used. HA conditions (sunny, clear-night, partlycloudy, cloudy, fog, exceptional, rainy, pouring, lightning, lightning-rainy, snowy, snowy-rainy, hail, windy, windy-variant) map to the existing icons and get translated labels.
 
 In °F the high is shown above the low (US convention).
 
@@ -442,7 +442,7 @@ Payload (v1):
 | `style` (per series) | `"bar"` (default) or `"line"`. Bars grow from the zero line (negatives go down). Lines are 1 px steps drawn on top; `null` leaves a gap. |
 | `yaxis` | `true`: min and max printed at the left edge in a 3x5 font (64 px tall panels only). |
 | `summary_color` | Optional `"#RRGGBB"` for the header summary (default: the first series' colour). |
-| `legend` | Optional, up to 4 `{"text","color"}` items drawn in a 3x5 font under the header, only on panels at least 64 px tall. Items that don't fit are dropped from the end. |
+| `legend` | Optional, up to 4 `{"text","color"}` items drawn in a 3x5 font along the bottom edge, only on panels at least 64 px tall. Items that don't fit are dropped from the end. |
 | colors | `"#RRGGBB"`. |
 
 Home Assistant example (an automation action publishing a retained payload every 15 minutes):

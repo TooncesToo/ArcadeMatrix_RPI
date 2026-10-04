@@ -458,6 +458,8 @@ pub struct HaWeather {
     pub humidity: Option<f32>,
     pub wind: Option<f32>,
     pub wind_unit: String,
+    /// 8-point compass direction ("NE"), empty when not sent.
+    pub wind_dir: String,
     pub days: Vec<HaWeatherDay>,
 }
 
@@ -497,6 +499,9 @@ fn parse_weather_value(root: &Value) -> Option<HaWeather> {
             .unwrap_or_default(),
         humidity: current.and_then(|c| finite(c.get("humidity"))),
         wind: current.and_then(|c| finite(c.get("wind"))),
+        wind_dir: current
+            .map(|c| short_text(c.get("wind_dir")).trim().to_string())
+            .unwrap_or_default(),
         wind_unit: current
             .map(|c| short_text(c.get("wind_unit")))
             .unwrap_or_default(),

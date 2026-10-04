@@ -291,12 +291,12 @@ Avec `source = ha`, le panneau ne fait aucune requête HTTP. Message (températu
 
 ```json
 {"v":1,"units":"imperial",
- "current":{"temp":75,"condition":"clear-night","humidity":47,"wind":7,"wind_unit":"mph"},
+ "current":{"temp":75,"condition":"clear-night","humidity":47,"wind":7,"wind_unit":"mph","wind_dir":"NE"},
  "days":[{"temp_max":89,"temp_min":70,"condition":"sunny"},
          {"temp_max":90,"temp_min":71,"condition":"partlycloudy"}]}
 ```
 
-Le cycle commence par une page ACTU. : la mesure en direct `current.temp`, puis humidité et vent (`current.humidity`, `current.wind`, `current.wind_unit`). `units` : `imperial` = °F, `metric` = °C. Le jour 0 utilise la mesure en direct `current.temp` ; jusqu'à 5 jours. Les conditions HA standard sont associées aux icônes existantes et traduites.
+Le cycle commence par une page ACTU. : la mesure en direct `current.temp`, puis humidité et vent (`current.humidity`, `current.wind_dir`, `current.wind`, `current.wind_unit`, par ex. « 41%  NE 9mph » ; la direction est retirée en premier si la ligne ne tient pas). `units` : `imperial` = °F, `metric` = °C. Le jour 0 utilise la mesure en direct `current.temp` ; jusqu'à 5 jours. Les conditions HA standard sont associées aux icônes existantes et traduites.
 
 En °F, la maximale est affichée au-dessus de la minimale (convention américaine).
 
@@ -424,7 +424,7 @@ Format du message (v1) :
 | `style` (par série) | `"bar"` (défaut) ou `"line"`. Les barres partent de la ligne zéro (négatif vers le bas). Les lignes (1 px, en escalier) sont dessinées par-dessus ; `null` = trou. |
 | `yaxis` | `true` : min et max affichés à gauche en police 3x5 (panneaux de 64 px de haut uniquement). |
 | `summary_color` | `"#RRGGBB"` optionnel pour le résumé de l'en-tête (défaut : couleur de la première série). |
-| `legend` | Optionnel, jusqu'à 4 éléments `{"text","color"}` en police 3x5 sous l'en-tête, uniquement sur les panneaux d'au moins 64 px de haut. Les éléments qui ne tiennent pas sont retirés depuis la fin. |
+| `legend` | Optionnel, jusqu'à 4 éléments `{"text","color"}` en police 3x5 le long du bord inférieur, uniquement sur les panneaux d'au moins 64 px de haut. Les éléments qui ne tiennent pas sont retirés depuis la fin. |
 | couleurs | `"#RRGGBB"`. |
 
 Exemple Home Assistant (action d'automatisation publiant un message retained toutes les 15 minutes) :

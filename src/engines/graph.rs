@@ -162,14 +162,11 @@ pub fn render_graph_with(
     };
 
     let mut lay = layout_for(h, show_header);
-    let bottom = h; // exclusive
-                    // Legend row (64 px tall panels only): tiny font under the header, plot shrinks.
-    let legend_y = lay.graph_top;
+    // Legend row at the bottom (64 px tall panels only): the plot ends 7 rows higher.
     let show_legend = h >= 64 && !g.legend.is_empty();
-    if show_legend {
-        lay.graph_top += TINY_H + 2;
-        lay.graph_height = (h - lay.graph_top).max(0);
-    }
+    let bottom = if show_legend { h - TINY_H - 2 } else { h }; // plot's exclusive bottom
+    let legend_y = bottom + 1;
+    lay.graph_height = (bottom - lay.graph_top).max(0);
     let gh = lay.graph_height;
 
     // Header: title left, summary right-aligned in the first series' colour.
@@ -232,7 +229,7 @@ pub fn render_graph_with(
         lo: g.lo,
         hi: g.hi,
         gh,
-        h,
+        h: bottom,
     };
 
     // Optional y-axis labels (64 px tall panels only): the plot shifts right.
@@ -255,7 +252,7 @@ pub fn render_graph_with(
             matrix,
             lmin,
             lw - tiny_text_width(lmin),
-            h - TINY_H,
+            bottom - TINY_H,
             0,
             lw,
             AXIS_COLOR,
