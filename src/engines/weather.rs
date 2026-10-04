@@ -507,129 +507,115 @@ impl WeatherEngine {
             };
 
             if mw >= 256 && mh >= 64 {
-                // --- 256x64 Ultra-Widescreen HD Layout ---
-                let icon_x = base_x as i32 + offset_x + 20;
-                let icon_y = (mh as i32 - 24) / 2 + offset_y;
-                self.draw_icon(&mut panorama, &slide.icon, icon_x, icon_y);
+                // --- 256x64: three columns, as the ESP32 `drawForecast` (layout-v2.md B) ---
+                let (row1, row2) = (slide.temp_min.as_str(), slide.temp_max.as_str());
+                let margin = 8;
+                let icon_x = base_x as i32 + margin + offset_x;
+                let icon_y = (mh as i32 - 48) / 2 + offset_y;
+                Self::draw_icon_scaled(&mut panorama, &slide.icon, icon_x, icon_y, 2);
 
-                let temp_x = icon_x + 36;
-                self.draw_arcade_text(
-                    &mut panorama,
-                    &slide.temp_min,
-                    temp_x,
-                    offset_y + 10,
+                let row_top = 10 + offset_y;
+                let row_bottom = 38 + offset_y;
+                let right_edge = base_x as i32 + mw as i32 - margin + offset_x;
+                let temp_w = if slide.is_now {
+                    glcd_w(row1, 2)
+                } else {
+                    glcd_w(row1, 2).max(glcd_w(row2, 2))
+                };
+                let mut canvas = SlideCanvas::new(&mut panorama, base_x as i32, mw as i32);
+                canvas.text(
+                    row1,
+                    right_edge - glcd_w(row1, 2),
+                    row_top,
+                    2,
                     color_morning,
-                    2.0,
                 );
-                self.draw_arcade_text(
-                    &mut panorama,
-                    &slide.temp_max,
-                    temp_x,
-                    offset_y + 38,
+                canvas.text(
+                    row2,
+                    right_edge - glcd_w(row2, 2),
+                    row_bottom,
+                    2,
                     color_afternoon,
-                    2.0,
                 );
 
-                let (_, min_w, _) = font.get_pixel_map(&slide.temp_min, 2.0);
-                let (_, max_w, _) = font.get_pixel_map(&slide.temp_max, 2.0);
-                let max_w = if slide.is_now { 0 } else { max_w };
-                let right_x = temp_x + min_w.max(max_w) + 18;
+                let mid_x = icon_x + 48 + margin;
+                let mid_w = (right_edge - temp_w - margin) - mid_x;
+                let mut label = if slide.label_long.is_empty() {
+                    slide.label.as_str()
+                } else {
+                    slide.label_long.as_str()
+                };
+                if glcd_w(label, 2) > mid_w {
+                    label = &slide.label;
+                }
+                canvas.text(label, mid_x, row_top, 2, color_label);
 
-                self.draw_arcade_text(
-                    &mut panorama,
-                    &slide.label,
-                    right_x,
-                    offset_y + 10,
-                    color_label,
-                    2.0,
-                );
-
-                if !slide.condition.is_empty() {
-                    self.draw_arcade_text(
-                        &mut panorama,
-                        &slide.condition,
-                        right_x,
-                        offset_y + 38,
-                        color_desc,
-                        2.0,
-                    );
+                let mut desc = if slide.condition_long.is_empty() {
+                    slide.condition.as_str()
+                } else {
+                    slide.condition_long.as_str()
+                };
+                if !desc.is_empty() {
+                    let size = if glcd_w(desc, 2) <= mid_w { 2 } else { 1 };
+                    if size == 1 && glcd_w(desc, 1) > mid_w {
+                        desc = &slide.condition;
+                    }
+                    let y = if size == 2 {
+                        row_bottom
+                    } else {
+                        row_bottom + 4
+                    };
+                    canvas.text(desc, mid_x, y, size, color_desc);
                 }
             } else if is_wide && !is_tall {
-                // --- 128x32 Optimized Spacious Layout ---
-                let icon_x = base_x as i32 + offset_x + 4;
+                // --- 128x32, as the ESP32 `drawForecast` (layout-v2.md B) ---
+                let (row1, row2) = (slide.temp_min.as_str(), slide.temp_max.as_str());
+                let icon_x = base_x as i32 + 4 + offset_x;
                 let icon_y = (mh as i32 - 24) / 2 + offset_y;
-                self.draw_icon(&mut panorama, &slide.icon, icon_x, icon_y);
+                Self::draw_icon_scaled(&mut panorama, &slide.icon, icon_x, icon_y, 1);
 
                 let temp_x = icon_x + 28;
-                self.draw_arcade_text(
-                    &mut panorama,
-                    &slide.temp_min,
-                    temp_x,
-                    offset_y + 4,
-                    color_morning,
-                    1.0,
-                );
-                self.draw_arcade_text(
-                    &mut panorama,
-                    &slide.temp_max,
-                    temp_x,
-                    offset_y + 18,
-                    color_afternoon,
-                    1.0,
-                );
+                let max_len = if slide.is_now {
+                    row1.chars().count()
+                } else {
+                    row1.chars().count().max(row2.chars().count())
+                };
+                let text_w = max_len as i32 * 6;
+                let mut canvas = SlideCanvas::new(&mut panorama, base_x as i32, mw as i32);
+                canvas.text(row1, temp_x, 4 + offset_y, 1, color_morning);
+                canvas.text(row2, temp_x, 18 + offset_y, 1, color_afternoon);
 
-                let (_, min_w, _) = font.get_pixel_map(&slide.temp_min, 1.0);
-                let (_, max_w, _) = font.get_pixel_map(&slide.temp_max, 1.0);
-                let max_w = if slide.is_now { 0 } else { max_w };
-                let mut right_x = temp_x + min_w.max(max_w) + 6;
-                if right_x < base_x as i32 + 60 + offset_x {
-                    right_x = base_x as i32 + 60 + offset_x;
+                let slide_x = base_x as i32;
+                let mut right_x = temp_x + text_w + 6;
+                if right_x < slide_x + 60 + offset_x {
+                    right_x = slide_x + 60 + offset_x;
                 }
-                let max_right = (base_x + mw) as i32 - 42;
+                let max_right = slide_x + mw as i32 - 42;
                 if right_x > max_right {
                     right_x = max_right;
                 }
-
-                self.draw_arcade_text(
-                    &mut panorama,
-                    &slide.label,
-                    right_x,
-                    offset_y + 4,
-                    color_label,
-                    1.0,
-                );
+                canvas.text(&slide.label, right_x, 4 + offset_y, 1, color_label);
 
                 if !slide.condition.is_empty() {
-                    let avail_w = ((base_x + mw) as i32 - right_x - 2).max(6);
+                    let avail_w = slide_x + mw as i32 - right_x - 2;
                     let max_chars = (avail_w / 6).max(1) as usize;
-                    let mut cond = slide.condition.clone();
-                    if cond.chars().count() > max_chars {
-                        if max_chars > 3 {
-                            cond = format!(
-                                "{}.",
-                                &cond[..cond
-                                    .char_indices()
-                                    .nth(max_chars - 1)
-                                    .map(|(i, _)| i)
-                                    .unwrap_or(cond.len())]
-                            );
-                        } else {
-                            cond = cond[..cond
-                                .char_indices()
-                                .nth(max_chars)
-                                .map(|(i, _)| i)
-                                .unwrap_or(cond.len())]
-                                .to_string();
+                    let n = slide.condition.chars().count();
+                    let prefix = |k: usize| -> &str {
+                        match slide.condition.char_indices().nth(k) {
+                            Some((i, _)) => &slide.condition[..i],
+                            None => slide.condition.as_str(),
                         }
-                    }
-                    self.draw_arcade_text(
-                        &mut panorama,
-                        &cond,
-                        right_x,
-                        offset_y + 18,
-                        color_desc,
-                        1.0,
-                    );
+                    };
+                    let desc = if n > max_chars {
+                        if max_chars > 3 {
+                            format!("{}.", prefix(max_chars - 1))
+                        } else {
+                            prefix(max_chars).to_string()
+                        }
+                    } else {
+                        slide.condition.clone()
+                    };
+                    canvas.text(&desc, right_x, 18 + offset_y, 1, color_desc);
                 }
             } else if is_tall && is_wide {
                 // --- 128x64 or larger Spacious Layout ---
@@ -863,13 +849,43 @@ impl WeatherEngine {
     }
 
     fn draw_icon(&self, img: &mut image::RgbaImage, icon: &str, x: i32, y: i32) {
+        Self::draw_icon_scaled(img, icon, x, y, 1);
+    }
+
+    /// The 24x24 weather icon (same design as the ESP32 `drawIcon`) at an
+    /// integer scale: coordinates and radii are multiplied, and a 1 px line
+    /// becomes `scale` parallel lines offset in x.
+    fn draw_icon_scaled(img: &mut image::RgbaImage, icon: &str, x: i32, y: i32, scale: i32) {
         use image::Rgba;
         use imageproc::drawing::{
             draw_filled_circle_mut, draw_filled_rect_mut, draw_line_segment_mut,
         };
         use imageproc::rect::Rect;
 
-        // 24x24 pixel area for icons
+        let s = scale.max(1);
+        let px = |v: i32| x + v * s;
+        let py = |v: i32| y + v * s;
+        let circle = |img: &mut image::RgbaImage, cx: i32, cy: i32, r: i32, c: Rgba<u8>| {
+            draw_filled_circle_mut(img, (px(cx), py(cy)), r * s, c);
+        };
+        let rect = |img: &mut image::RgbaImage, rx: i32, ry: i32, w: u32, h: u32, c: Rgba<u8>| {
+            draw_filled_rect_mut(
+                img,
+                Rect::at(px(rx), py(ry)).of_size(w * s as u32, h * s as u32),
+                c,
+            );
+        };
+        let line = |img: &mut image::RgbaImage, x0: i32, y0: i32, x1: i32, y1: i32, c: Rgba<u8>| {
+            for o in 0..s {
+                draw_line_segment_mut(
+                    img,
+                    ((px(x0) + o) as f32, py(y0) as f32),
+                    ((px(x1) + o) as f32, py(y1) as f32),
+                    c,
+                );
+            }
+        };
+
         let yellow = Rgba([255, 255, 0, 255]);
         let dark_yellow = Rgba([255, 200, 0, 255]);
         let light_grey = Rgba([200, 200, 200, 255]);
@@ -881,143 +897,53 @@ impl WeatherEngine {
 
         if icon.contains("01") {
             // Sun
-            draw_filled_circle_mut(img, (x + 12, y + 12), 6, yellow);
-            draw_line_segment_mut(
-                img,
-                ((x + 12) as f32, (y + 2) as f32),
-                ((x + 12) as f32, (y + 4) as f32),
-                dark_yellow,
-            );
-            draw_line_segment_mut(
-                img,
-                ((x + 12) as f32, (y + 20) as f32),
-                ((x + 12) as f32, (y + 22) as f32),
-                dark_yellow,
-            );
-            draw_line_segment_mut(
-                img,
-                ((x + 2) as f32, (y + 12) as f32),
-                ((x + 4) as f32, (y + 12) as f32),
-                dark_yellow,
-            );
-            draw_line_segment_mut(
-                img,
-                ((x + 20) as f32, (y + 12) as f32),
-                ((x + 22) as f32, (y + 12) as f32),
-                dark_yellow,
-            );
-            draw_line_segment_mut(
-                img,
-                ((x + 5) as f32, (y + 5) as f32),
-                ((x + 7) as f32, (y + 7) as f32),
-                dark_yellow,
-            );
-            draw_line_segment_mut(
-                img,
-                ((x + 19) as f32, (y + 19) as f32),
-                ((x + 17) as f32, (y + 17) as f32),
-                dark_yellow,
-            );
-            draw_line_segment_mut(
-                img,
-                ((x + 19) as f32, (y + 5) as f32),
-                ((x + 17) as f32, (y + 7) as f32),
-                dark_yellow,
-            );
-            draw_line_segment_mut(
-                img,
-                ((x + 5) as f32, (y + 19) as f32),
-                ((x + 7) as f32, (y + 17) as f32),
-                dark_yellow,
-            );
+            circle(img, 12, 12, 6, yellow);
+            line(img, 12, 2, 12, 4, dark_yellow);
+            line(img, 12, 20, 12, 22, dark_yellow);
+            line(img, 2, 12, 4, 12, dark_yellow);
+            line(img, 20, 12, 22, 12, dark_yellow);
+            line(img, 5, 5, 7, 7, dark_yellow);
+            line(img, 19, 19, 17, 17, dark_yellow);
+            line(img, 19, 5, 17, 7, dark_yellow);
+            line(img, 5, 19, 7, 17, dark_yellow);
         } else if icon.contains("02") || icon.contains("03") || icon.contains("04") {
             // Clouds
             if icon.contains("02") {
                 // Sun behind cloud
-                draw_filled_circle_mut(img, (x + 8, y + 8), 4, yellow);
+                circle(img, 8, 8, 4, yellow);
             }
-            draw_filled_circle_mut(img, (x + 8, y + 14), 5, light_grey);
-            draw_filled_circle_mut(img, (x + 14, y + 11), 6, white);
-            draw_filled_circle_mut(img, (x + 20, y + 14), 5, light_grey);
-            draw_filled_rect_mut(img, Rect::at(x + 8, y + 14).of_size(12, 6), light_grey);
+            circle(img, 8, 14, 5, light_grey);
+            circle(img, 14, 11, 6, white);
+            circle(img, 20, 14, 5, light_grey);
+            rect(img, 8, 14, 12, 6, light_grey);
         } else if icon.contains("09") || icon.contains("10") {
             // Rain
-            draw_filled_circle_mut(img, (x + 8, y + 10), 5, dark_grey);
-            draw_filled_circle_mut(img, (x + 14, y + 8), 6, light_grey);
-            draw_filled_circle_mut(img, (x + 20, y + 10), 5, dark_grey);
-            draw_filled_rect_mut(img, Rect::at(x + 8, y + 10).of_size(12, 6), dark_grey);
-            draw_line_segment_mut(
-                img,
-                ((x + 8) as f32, (y + 18) as f32),
-                ((x + 6) as f32, (y + 22) as f32),
-                blue,
-            );
-            draw_line_segment_mut(
-                img,
-                ((x + 14) as f32, (y + 18) as f32),
-                ((x + 12) as f32, (y + 22) as f32),
-                blue,
-            );
-            draw_line_segment_mut(
-                img,
-                ((x + 20) as f32, (y + 18) as f32),
-                ((x + 18) as f32, (y + 22) as f32),
-                blue,
-            );
+            circle(img, 8, 10, 5, dark_grey);
+            circle(img, 14, 8, 6, light_grey);
+            circle(img, 20, 10, 5, dark_grey);
+            rect(img, 8, 10, 12, 6, dark_grey);
+            line(img, 8, 18, 6, 22, blue);
+            line(img, 14, 18, 12, 22, blue);
+            line(img, 20, 18, 18, 22, blue);
         } else if icon.contains("11") {
             // Thunder
-            draw_filled_circle_mut(img, (x + 8, y + 10), 5, thunder_grey);
-            draw_filled_circle_mut(img, (x + 14, y + 8), 6, dark_grey);
-            draw_filled_circle_mut(img, (x + 20, y + 10), 5, thunder_grey);
-            draw_filled_rect_mut(img, Rect::at(x + 8, y + 10).of_size(12, 6), thunder_grey);
-            draw_line_segment_mut(
-                img,
-                ((x + 14) as f32, (y + 16) as f32),
-                ((x + 10) as f32, (y + 20) as f32),
-                yellow,
-            );
-            draw_line_segment_mut(
-                img,
-                ((x + 10) as f32, (y + 20) as f32),
-                ((x + 16) as f32, (y + 20) as f32),
-                yellow,
-            );
-            draw_line_segment_mut(
-                img,
-                ((x + 16) as f32, (y + 20) as f32),
-                ((x + 12) as f32, (y + 24) as f32),
-                yellow,
-            );
+            circle(img, 8, 10, 5, thunder_grey);
+            circle(img, 14, 8, 6, dark_grey);
+            circle(img, 20, 10, 5, thunder_grey);
+            rect(img, 8, 10, 12, 6, thunder_grey);
+            line(img, 14, 16, 10, 20, yellow);
+            line(img, 10, 20, 16, 20, yellow);
+            line(img, 16, 20, 12, 24, yellow);
         } else if icon.contains("13") {
             // Snow
-            draw_filled_circle_mut(img, (x + 14, y + 14), 2, white);
-            draw_line_segment_mut(
-                img,
-                ((x + 14) as f32, (y + 8) as f32),
-                ((x + 14) as f32, (y + 20) as f32),
-                white,
-            );
-            draw_line_segment_mut(
-                img,
-                ((x + 8) as f32, (y + 14) as f32),
-                ((x + 20) as f32, (y + 14) as f32),
-                white,
-            );
-            draw_line_segment_mut(
-                img,
-                ((x + 10) as f32, (y + 10) as f32),
-                ((x + 18) as f32, (y + 18) as f32),
-                white,
-            );
-            draw_line_segment_mut(
-                img,
-                ((x + 18) as f32, (y + 10) as f32),
-                ((x + 10) as f32, (y + 18) as f32),
-                white,
-            );
+            circle(img, 14, 14, 2, white);
+            line(img, 14, 8, 14, 20, white);
+            line(img, 8, 14, 20, 14, white);
+            line(img, 10, 10, 18, 18, white);
+            line(img, 18, 10, 10, 18, white);
         } else {
             // Unknown
-            draw_filled_circle_mut(img, (x + 12, y + 12), 6, green);
+            circle(img, 12, 12, 6, green);
         }
     }
 
@@ -1035,6 +961,54 @@ impl WeatherEngine {
         tracing::warn!("Failed to fetch weather forecast from all providers");
         self.forecasts.clear();
     }
+}
+
+/// Width of `text` in the GLCD 5x7 font at `size`, as the ESP32 computes it
+/// (`len*6*size - size`, 0 for empty text).
+fn glcd_w(text: &str, size: i32) -> i32 {
+    let n = text.chars().count() as i32;
+    if n == 0 {
+        0
+    } else {
+        n * 6 * size - size
+    }
+}
+
+/// Draws GLCD text into one slide of the weather panorama, clipped to that slide.
+struct SlideCanvas<'a> {
+    img: &'a mut image::RgbaImage,
+    x0: i32,
+    w: i32,
+}
+
+impl<'a> SlideCanvas<'a> {
+    fn new(img: &'a mut image::RgbaImage, x0: i32, w: i32) -> Self {
+        Self { img, x0, w }
+    }
+
+    fn text(&mut self, text: &str, x: i32, y: i32, size: i32, c: (u8, u8, u8)) {
+        let (x0, x1) = (self.x0, self.x0 + self.w);
+        let h = self.img.height() as i32;
+        crate::engines::dashboard::font::draw_text_scaled(self, text, x, y, x0, x1, 0, h, size, c);
+    }
+}
+
+impl crate::core::matrix::MatrixBackend for SlideCanvas<'_> {
+    fn width(&self) -> u32 {
+        self.img.width()
+    }
+    fn height(&self) -> u32 {
+        self.img.height()
+    }
+    fn set_pixel(&mut self, x: i32, y: i32, r: u8, g: u8, b: u8) {
+        if x >= 0 && y >= 0 && (x as u32) < self.img.width() && (y as u32) < self.img.height() {
+            self.img
+                .put_pixel(x as u32, y as u32, image::Rgba([r, g, b, 255]));
+        }
+    }
+    fn clear(&mut self) {}
+    fn update(&mut self) {}
+    fn set_brightness(&mut self, _brightness: u8) {}
 }
 
 /// Default topic of the Home Assistant weather payload (`source = ha`).
@@ -1059,10 +1033,8 @@ pub fn ha_forecasts(
     use crate::core::i18n::{self, Lang};
     let l = Lang::from_code(lang);
     let unit_sym = if w.imperial { "°F" } else { "°C" };
-    let mut days: Vec<crate::core::data_feed::HaWeatherDay> = w.days.clone();
-    if days.is_empty() && (w.current_temp.is_some() || !w.current_condition.is_empty()) {
-        days.push(Default::default());
-    }
+    // Days come only from the forecast; with none, the NOW page stands alone (as on the ESP32).
+    let days = &w.days;
     let mut slides: Vec<DayForecast> = Vec::with_capacity(days.len() + 1);
     // "NOW" page first: the live station reading, humidity and wind.
     if let Some(t) = w.current_temp {
@@ -1082,10 +1054,12 @@ pub fn ha_forecasts(
         };
         slides.push(DayForecast {
             label: i18n::weather_now_label(l).to_string(),
+            label_long: String::new(),
             temp: ha_temp(Some(t), unit_sym),
             temp_min: ha_temp(Some(t), unit_sym),
             temp_max: line2,
             condition: String::new(),
+            condition_long: String::new(),
             icon: i18n::ha_weather_icon(&w.current_condition).to_string(),
             is_now: true,
         });
@@ -1096,9 +1070,9 @@ pub fn ha_forecasts(
         } else {
             d.condition.as_str()
         };
-        let condition = i18n::ha_weather_condition(l, cond_raw)
-            .map(|(short, _long)| short.to_string())
-            .unwrap_or_else(|| cond_raw.to_string());
+        let (condition, condition_long) = i18n::ha_weather_condition(l, cond_raw)
+            .map(|(short, long)| (short.to_string(), long.to_string()))
+            .unwrap_or_else(|| (cond_raw.to_string(), cond_raw.to_string()));
         let temp = if i == 0 {
             w.current_temp.or(d.temp_max)
         } else {
@@ -1107,10 +1081,18 @@ pub fn ha_forecasts(
         DayForecast {
             label: i18n::weather_day_label(l, ((current_wday as usize) + i) % 7, i == 0, i == 1)
                 .to_string(),
+            label_long: i18n::weather_day_label_long(
+                l,
+                ((current_wday as usize) + i) % 7,
+                i == 0,
+                i == 1,
+            )
+            .to_string(),
             temp: ha_temp(temp, unit_sym),
             temp_min: ha_temp(d.temp_min, unit_sym),
             temp_max: ha_temp(d.temp_max, unit_sym),
             condition,
+            condition_long,
             icon: i18n::ha_weather_icon(cond_raw).to_string(),
             is_now: false,
         }

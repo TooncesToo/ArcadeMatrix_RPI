@@ -29,11 +29,22 @@ fn lit_in(
 
 /// The store has a single writer in production (the MQTT thread); parallel
 /// tests must not publish at the same time or they can race for a free slot.
+/// The global store holds only 8 topics, so tests share a few fixed topics and
+/// a publish that isn't stored fails loudly instead of rendering "no data".
 fn publish_test(topic: &str, payload: &str) {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    data_feed().publish(topic, payload);
+    assert_eq!(
+        data_feed().publish(topic, payload),
+        arcadematrix::core::data_feed::PublishResult::Stored,
+        "test topic {} not stored (store full?)",
+        topic
+    );
 }
+
+/// Serializes the weather tests that share `WEATHER_DAY_TOPIC` (publish + render).
+static WEATHER_DAY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+const WEATHER_DAY_TOPIC: &str = "test/ha_screens/weather_day";
 
 const RED: (u8, u8, u8) = (0xFF, 0x40, 0x20);
 const BLUE: (u8, u8, u8) = (0x20, 0x60, 0xFF);
@@ -449,10 +460,15 @@ fn weather_payload_to_day_forecasts() {
     assert_eq!(ha_forecasts(&w, "es", 5)[0].label, "AHORA");
     let metric = parse_weather_payload(r#"{"units":"metric","current":{"temp":21}}"#).unwrap();
     let m = ha_forecasts(&metric, "en", 0);
-    assert_eq!(m.len(), 2); // NOW + today built from current
+    assert_eq!(m.len(), 1); // no forecast days: the NOW page stands alone (as on the ESP32)
+    assert!(m[0].is_now);
     assert_eq!(m[0].temp_min, "21°C");
-    assert_eq!(m[1].temp, "21°C");
-    assert_eq!(m[1].temp_max, "--°C");
+    // Long labels for wide panels.
+    assert_eq!(f[1].label_long, "TODAY");
+    assert_eq!(f[2].label_long, "TOMORROW");
+    assert_eq!(f[3].label_long, "SUNDAY");
+    assert_eq!(f[2].condition_long, "Partly cloudy");
+    assert_eq!(f[0].label_long, "");
 }
 
 #[test]
@@ -476,29 +492,12 @@ fn now_page_second_line_falls_back() {
 #[test]
 fn now_page_widest_line_fits_128() {
     // "34%  12mph" (two-digit wind) must stay on a 128 px panel.
-    let dir = std::env::temp_dir().join(format!("am_weather_fit_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let config = Config::new(dir.join("config.json"));
-    let topic = "test/ha_screens/weather_fit";
-    publish_test(
-        topic,
+    let m = render_weather_day(
         r#"{"units":"imperial","current":{"temp":104,"condition":"sunny","humidity":34,"wind":12,"wind_unit":"mph"}}"#,
+        128,
+        32,
+        "fit",
     );
-    let mut cfg = HashMap::new();
-    cfg.insert("source".to_string(), "ha".to_string());
-    cfg.insert("topic".to_string(), topic.to_string());
-    let mut engine = WeatherEngine::new();
-    let mut m = MockMatrix::new(128, 32);
-    let mut ctx = EngineContext {
-        matrix: &mut m,
-        config: &config,
-    };
-    engine
-        .initialize(&mut ctx, &HashConfig { data: &cfg })
-        .unwrap();
-    engine.activate();
-    engine.update(&mut ctx);
-    engine.render(&mut ctx);
     // Line 2 (grey) must not reach the last column, i.e. it isn't clipped.
     let grey = |x: u32| (0..32).any(|y| px(&m, x, y) == (210, 210, 210));
     let last = (0..128).rev().find(|&x| grey(x)).expect("line 2 drawn");
@@ -506,7 +505,6 @@ fn now_page_widest_line_fits_128() {
     if let Ok(out) = std::env::var("HA_PREVIEW_DIR") {
         save(&m, &out, "weather_ha_now_34_12mph");
     }
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Colours of the top-most and bottom-most rows that use `c` in a region.
@@ -521,7 +519,8 @@ fn render_weather_day(payload: &str, w: u32, h: u32, name: &str) -> MockMatrix {
     let dir = std::env::temp_dir().join(format!("am_weather_{}_{}", name, std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let config = Config::new(dir.join("config.json"));
-    let topic = format!("test/ha_screens/{}", name);
+    let _guard = WEATHER_DAY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let topic = WEATHER_DAY_TOPIC.to_string();
     publish_test(&topic, payload);
     let mut cfg = HashMap::new();
     cfg.insert("source".to_string(), "ha".to_string());
@@ -540,6 +539,53 @@ fn render_weather_day(payload: &str, w: u32, h: u32, name: &str) -> MockMatrix {
     engine.render(&mut ctx);
     let _ = std::fs::remove_dir_all(&dir);
     m
+}
+
+/// Leftmost / rightmost columns and top / bottom rows painted in colour `c`.
+fn bbox(m: &MockMatrix, c: (u8, u8, u8)) -> Option<(u32, u32, u32, u32)> {
+    let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0, 0);
+    for y in 0..m.canvas.height() {
+        for x in 0..m.canvas.width() {
+            if px(m, x, y) == c {
+                x0 = x0.min(x);
+                x1 = x1.max(x);
+                y0 = y0.min(y);
+                y1 = y1.max(y);
+            }
+        }
+    }
+    (x0 != u32::MAX).then_some((x0, y0, x1, y1))
+}
+
+#[test]
+fn weather_pages_match_esp32_positions() {
+    const HIGH: (u8, u8, u8) = (255, 150, 50);
+    const LOW: (u8, u8, u8) = (120, 200, 255);
+    const LABEL: (u8, u8, u8) = (180, 180, 255);
+    let today =
+        r#"{"units":"imperial","days":[{"temp_max":89,"temp_min":70,"condition":"sunny"}]}"#;
+
+    // 256x64: temps size 2 right-aligned to x = 256 - 8 (last pixel 247), rows 10 and 38;
+    // label "TODAY" size 2 at mid_x = 8 + 48 + 8 = 64, row 10.
+    let m = render_weather_day(today, 256, 64, "esp_256");
+    let (_, hy0, hx1, hy1) = bbox(&m, HIGH).unwrap();
+    assert_eq!((hx1, hy0, hy1), (247, 10, 23));
+    let (_, ly0, lx1, _) = bbox(&m, LOW).unwrap();
+    assert_eq!((lx1, ly0), (247, 38));
+    let (lab_x0, lab_y0, _, _) = bbox(&m, LABEL).unwrap();
+    assert_eq!((lab_x0, lab_y0), (64, 10));
+    // Sun icon at scale 2: centre (8 + 24, 8 + 24) is yellow.
+    assert_eq!(px(&m, 32, 32), (255, 255, 0));
+
+    // 128x32: temps size 1 at temp_x = 4 + 28 = 32, rows 4 and 18;
+    // label at right_x = max(32 + 4*6 + 6, 60) = 62, row 4.
+    let m = render_weather_day(today, 128, 32, "esp_128");
+    let (hx0, hy0, _, _) = bbox(&m, HIGH).unwrap();
+    assert_eq!((hx0, hy0), (32, 4));
+    let (lx0, ly0, _, _) = bbox(&m, LOW).unwrap();
+    assert_eq!((lx0, ly0), (32, 18));
+    let (lab_x0, lab_y0, _, _) = bbox(&m, LABEL).unwrap();
+    assert_eq!((lab_x0, lab_y0), (62, 4));
 }
 
 #[test]
