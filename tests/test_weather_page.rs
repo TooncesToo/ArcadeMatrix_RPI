@@ -7,6 +7,7 @@ const HIGH: [u8; 4] = [255, 150, 50, 255];
 const LOW: [u8; 4] = [120, 200, 255, 255];
 const LABEL: [u8; 4] = [180, 180, 255, 255];
 const DESC: [u8; 4] = [210, 210, 210, 255];
+const WHITE: [u8; 4] = [255, 255, 255, 255];
 
 fn day(min: &str, max: &str, cond: &str, cond_long: &str) -> DayForecast {
     DayForecast {
@@ -18,6 +19,8 @@ fn day(min: &str, max: &str, cond: &str, cond_long: &str) -> DayForecast {
         condition: cond.into(),
         condition_long: cond_long.into(),
         icon: "01d".into(),
+        is_now: false,
+        now_line2_short: String::new(),
     }
 }
 
@@ -73,4 +76,21 @@ fn celsius_keeps_low_on_top() {
     let (_, hy0, _, _) = bbox(&img, HIGH).unwrap();
     let (_, ly0, _, _) = bbox(&img, LOW).unwrap();
     assert!(ly0 < hy0);
+}
+
+#[test]
+fn now_page_drops_wind_direction_when_too_wide() {
+    let mut now = day("100°F", "100%  NW 100km/h", "", "");
+    now.is_now = true;
+    now.label = "NOW".into();
+    now.label_long = String::new();
+    now.now_line2_short = "100%  100km/h".into();
+    let img = render(&now, 128, 32);
+    let (wx0, wy0, wx1, _) = bbox(&img, WHITE).unwrap();
+    assert_eq!((wy0, wx1), (4, 123));
+    let (gx0, gy0, gx1, _) = bbox(&img, DESC).unwrap();
+    // "100%  100km/h" (77 px) right-aligned: x 47..123 ('1' has a blank first column).
+    assert_eq!((gx0, gy0, gx1), (48, 18, 123));
+    let (lx0, _, lx1, _) = bbox(&img, LABEL).unwrap();
+    assert!(lx0 == 32 && lx1 < wx0);
 }

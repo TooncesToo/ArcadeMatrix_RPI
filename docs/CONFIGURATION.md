@@ -15,6 +15,7 @@ The configuration system relies exclusively on a single `config.json` file locat
   "matrix": { ... },
   "wifi": { ... },
   "mqtt": { ... },
+  "data_mqtt": { ... },
   "system": { ... },
   "instances": [ ... ],
   "rotation": [ ... ],
@@ -102,6 +103,19 @@ The sync daemon can be installed on the console (Recalbox, Batocera, RetroPie) o
 > For Batocera, version **v33 or newer** is required for dynamic marquee browsing (`game-selected` and `system-selected` hooks). Batocera v32 and earlier only trigger game launch/stop events. Recalbox is supported on all versions.
 
 ---
+
+## 5b. The `"data_mqtt"` Block (MQTT Data broker)
+
+Broker credentials for the `mqttdata` engine. This connection is separate from the `"mqtt"` block above (marquees / control, which can take over the display). Nothing runs in the background: the engine connects only while its screen is active and disconnects when it leaves the rotation.
+
+| Key | Type | Description |
+| :--- | :--- | :--- |
+| `broker` | `String` | Broker host or IP. |
+| `port` | `int` | Broker port (default `1883`). |
+| `user` | `String` | Username (optional). |
+| `pass` | `String` | Password (optional). |
+
+The MQTT client id is `<hostname>-data`. Changes apply on the engine's next activation (no restart).
 
 ## 6. API Security (`api_auth_enabled` / `api_token`)
 
@@ -369,6 +383,13 @@ OpenWeatherMap uses the ISO 3166 country code (and 2-letter state code for the U
 | Field | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | *(auto)* | `None` | — | Internal Pixelcade/Recalbox/Batocera marquee sync engine. Displays scraped game box-art and marquees received via MQTT / Webhook. |
+
+### Engine: `mqttdata` (MQTT Data)
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `topics` | `String` | `""` | Up to 6 full MQTT topics, comma separated. Each topic is one page. |
+
+Everything else comes from each retained payload: its `type` (`value`, `table`, `graph`, `weather`), its time on screen (`seconds`) and its content. The screen stays up for one full cycle of its pages. The payload formats, limits and notices are in [MQTT_DATA_CONTRACT.md](MQTT_DATA_CONTRACT.md); Home Assistant blueprints are described in [HOME_ASSISTANT.md](HOME_ASSISTANT.md).
 
 ---
 

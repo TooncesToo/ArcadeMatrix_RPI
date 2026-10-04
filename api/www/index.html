@@ -625,6 +625,33 @@
             <pre id="ssh-log-output" class="input" style="display: none; max-height: 200px; overflow-y: auto; font-size: 12px; background: rgba(0,0,0,0.2); margin-top: 1rem; color: #fff; white-space: pre-wrap;"></pre>
           </div>
           
+          <!-- MQTT Data: broker credentials for MQTT Data screens (they connect only while on screen) -->
+          <div class="card glass shadow" style="margin-bottom: 2rem;">
+            <h3 data-i18n="data_mqtt_title">MQTT Data</h3>
+            <p class="text-muted" style="font-size: 0.9em;" data-i18n="data_mqtt_desc">Broker used by MQTT Data screens. They connect only while they are on screen. Separate from the marquee MQTT above.</p>
+            <div class="form-grid">
+              <div class="form-group">
+                <label data-i18n="mqtt_broker">Broker IP</label>
+                <input type="text" id="hw-data-mqtt-broker" class="input" placeholder="192.168.1.10">
+              </div>
+              <div class="form-group">
+                <label data-i18n="mqtt_port">Port</label>
+                <input type="number" id="hw-data-mqtt-port" class="input" value="1883">
+              </div>
+            </div>
+            <div class="form-grid" style="margin-top: 1rem;">
+              <div class="form-group">
+                <label data-i18n="mqtt_user">Username</label>
+                <input type="text" id="hw-data-mqtt-user" class="input" placeholder="Optional">
+              </div>
+              <div class="form-group">
+                <label data-i18n="mqtt_pass">Password</label>
+                <input type="password" id="hw-data-mqtt-pass" class="input" placeholder="Optional">
+              </div>
+            </div>
+            <button id="btn-save-data-mqtt" class="btn btn-primary" style="margin-top: 1rem; width: 100%;" data-i18n="data_mqtt_save_btn">Save MQTT Data</button>
+          </div>
+
           <div class="card glass shadow">
             <h3 data-i18n="api_auth_title">API Authentication</h3>
             <div class="form-grid">

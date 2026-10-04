@@ -133,6 +133,19 @@ pub struct MqttConfig {
     pub allow_overlay: bool,
 }
 
+/// Broker credentials for the MQTT Data engine. Separate
+/// from `mqtt` (the marquee / control connection, which can take over the
+/// display). Nothing runs in the background: the engine connects with these
+/// only while its screen is active.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DataMqttConfig {
+    pub broker: String,
+    pub port: u16,
+    pub user: String,
+    pub pass: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SystemConfig {
@@ -174,6 +187,7 @@ pub struct ConfigSettings {
     pub matrix: MatrixConfig,
     pub wifi: WifiConfig,
     pub mqtt: MqttConfig,
+    pub data_mqtt: DataMqttConfig,
     pub system: SystemConfig,
 
     #[serde(default)]
@@ -252,6 +266,17 @@ impl Default for MqttConfig {
     }
 }
 
+impl Default for DataMqttConfig {
+    fn default() -> Self {
+        Self {
+            broker: "".to_string(),
+            port: 1883,
+            user: "".to_string(),
+            pass: "".to_string(),
+        }
+    }
+}
+
 impl Default for SystemConfig {
     fn default() -> Self {
         Self {
@@ -277,6 +302,7 @@ impl Default for ConfigSettings {
             matrix: MatrixConfig::default(),
             wifi: WifiConfig::default(),
             mqtt: MqttConfig::default(),
+            data_mqtt: DataMqttConfig::default(),
             system: SystemConfig::default(),
             api_auth_enabled: false,
             api_token: "9101d2ff5928c93107e537aa3c07a282".to_string(),

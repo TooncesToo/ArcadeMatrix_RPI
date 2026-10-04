@@ -635,6 +635,25 @@ function initNetworkSettings() {
     });
   }
 
+  const btnSaveDataMqtt = document.getElementById('btn-save-data-mqtt');
+  if (btnSaveDataMqtt) {
+    btnSaveDataMqtt.addEventListener('click', async () => {
+      const data_mqtt = {
+        broker: document.getElementById('hw-data-mqtt-broker').value.trim(),
+        port: parseInt(document.getElementById('hw-data-mqtt-port').value, 10) || 1883,
+        user: document.getElementById('hw-data-mqtt-user').value,
+        pass: document.getElementById('hw-data-mqtt-pass').value,
+      };
+      try {
+        await API.post('/api/system', { data_mqtt });
+        if (window.__sysConfig) window.__sysConfig.data_mqtt = data_mqtt;
+        window.showToast('MQTT Data Saved!', 'success');
+      } catch (e) {
+        window.showToast('Failed to save MQTT Data', 'error');
+      }
+    });
+  }
+
   const btnSaveApi = document.getElementById('btn-save-api');
   if (btnSaveApi) {
     btnSaveApi.addEventListener('click', async () => {
@@ -769,6 +788,13 @@ async function initSettings() {
     setVal('hw-mqtt-port', mqtt.port);
     setVal('hw-mqtt-user', mqtt.user || '');
     setVal('hw-mqtt-pass', mqtt.pass || '');
+
+    // Data MQTT (nested data_mqtt.*)
+    const dataMqtt = cfg.data_mqtt || {};
+    setVal('hw-data-mqtt-broker', dataMqtt.broker || '');
+    setVal('hw-data-mqtt-port', dataMqtt.port ?? 1883);
+    setVal('hw-data-mqtt-user', dataMqtt.user || '');
+    setVal('hw-data-mqtt-pass', dataMqtt.pass || '');
 
     // API auth (top-level)
     setVal('hw-api-auth', cfg.api_auth_enabled ? 'true' : 'false');

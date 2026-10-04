@@ -15,6 +15,7 @@ El sistema de configuración se basa exclusivamente en un único archivo `config
   "matrix": { ... },
   "wifi": { ... },
   "mqtt": { ... },
+  "data_mqtt": { ... },
   "system": { ... },
   "instances": [ ... ],
   "rotation": [ ... ],
@@ -102,6 +103,19 @@ El daemon de sincronización puede instalarse en la consola (Recalbox, Batocera,
 > Para Batocera, se requiere la versión **v33 o superior** para el cambio dinámico de marquesinas durante la navegación (hooks `game-selected` y `system-selected`). Batocera v32 y versiones anteriores solo activan eventos de inicio/parada de juego. Recalbox es compatible en todas sus versiones.
 
 ---
+
+## 5b. El Bloque `"data_mqtt"` (broker MQTT Data)
+
+Credenciales del broker para el motor `mqttdata`. Esta conexión es distinta del bloque `"mqtt"` de arriba (marquesinas / control, que puede tomar la pantalla). Nada corre en segundo plano: el motor solo se conecta mientras su pantalla está activa y se desconecta al salir de la rotación.
+
+| Clave | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `broker` | `String` | Host o IP del broker. |
+| `port` | `int` | Puerto del broker (por defecto `1883`). |
+| `user` | `String` | Usuario (opcional). |
+| `pass` | `String` | Contraseña (opcional). |
+
+El id de cliente MQTT es `<hostname>-data`. Los cambios se aplican en la siguiente activación del motor (sin reinicio).
 
 ## 6. Seguridad de la API (`api_auth_enabled` / `api_token`)
 
@@ -353,6 +367,13 @@ OpenWeatherMap utiliza el código de país ISO 3166 (y el código de estado de 2
 | Campo | Tipo | Predeterminado | Descripción |
 | :--- | :--- | :--- | :--- |
 | *(auto)* | `None` | — | Motor interno de sincronización de marquesinas Pixelcade / Recalbox / Batocera recibidas mediante MQTT o Webhook. |
+
+### Motor: `mqttdata` (MQTT Data)
+| Campo | Tipo | Por defecto | Descripción |
+| :--- | :--- | :--- | :--- |
+| `topics` | `String` | `""` | Hasta 6 topics MQTT completos, separados por comas. Cada topic es una página. |
+
+Todo lo demás viene de cada mensaje retained: su `type` (`value`, `table`, `graph`, `weather`), su tiempo en pantalla (`seconds`) y su contenido. La pantalla se mantiene un ciclo completo de sus páginas. Formatos, límites y avisos: [MQTT_DATA_CONTRACT_ES.md](MQTT_DATA_CONTRACT_ES.md); blueprints de Home Assistant: [HOME_ASSISTANT_ES.md](HOME_ASSISTANT_ES.md).
 
 ---
 
