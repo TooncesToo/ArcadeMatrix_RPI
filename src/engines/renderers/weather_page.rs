@@ -1,6 +1,7 @@
-//! One weather page (a day of the forecast) drawn exactly like the ESP32
-//! firmware's `WeatherEngine::drawForecast`, so both firmwares show the same
-//! layout on 128x32 and 256x64 panels.
+//! One weather page (a day of the forecast, or the MQTT Data "NOW" page)
+//! drawn exactly like the ESP32 firmware's `WeatherEngine::drawForecast`, so
+//! both firmwares show the same layout on 128x32 and 256x64 panels. Shared by
+//! the OpenWeatherMap weather engine and the MQTT Data engine's weather pages.
 
 use crate::api::DayForecast;
 
@@ -19,7 +20,7 @@ pub fn draw_weather_page(
 ) {
     // In °F the high goes above the low (US convention): swap the two
     // temperature rows for forecast days. °C keeps low on top.
-    let high_on_top = slide.temp_max.ends_with("°F");
+    let high_on_top = !slide.is_now && slide.temp_max.ends_with("°F");
     let swapped;
     let slide = if high_on_top {
         swapped = DayForecast {
@@ -36,25 +37,45 @@ pub fn draw_weather_page(
     let color_desc = (210, 210, 210);
     let color_low = (120, 200, 255);
     let color_high = (255, 150, 50);
-    // Top / bottom temperature row colours.
-    let (color_morning, color_afternoon) = if high_on_top {
-        (color_high, color_low)
+    // Top / bottom temperature row colours. The MQTT Data "NOW" page draws the
+    // live reading in white and the humidity / wind line in the condition grey.
+    let color_morning = if slide.is_now {
+        (255, 255, 255)
+    } else if high_on_top {
+        color_high
     } else {
-        (color_low, color_high)
+        color_low
+    };
+    let color_afternoon = if slide.is_now {
+        color_desc
+    } else if high_on_top {
+        color_low
+    } else {
+        color_high
     };
 
     if mw >= 256 && mh >= 64 {
         // --- 256x64: three columns, as the ESP32 `drawForecast` ---
         let margin = 8;
         let icon_x = base_x as i32 + margin + offset_x;
-        let (row1, row2) = (slide.temp_min.as_str(), slide.temp_max.as_str());
+        let row1 = slide.temp_min.as_str();
+        let row2 = now_row2(
+            slide,
+            base_x as i32 + mw as i32 - margin + offset_x,
+            icon_x + 48 + margin,
+            2,
+        );
         let icon_y = (mh as i32 - 48) / 2 + offset_y;
         draw_icon_scaled(img, &slide.icon, icon_x, icon_y, 2);
 
         let row_top = 10 + offset_y;
         let row_bottom = 38 + offset_y;
         let right_edge = base_x as i32 + mw as i32 - margin + offset_x;
-        let temp_w = glcd_w(row1, 2).max(glcd_w(row2, 2));
+        let temp_w = if slide.is_now {
+            glcd_w(row1, 2)
+        } else {
+            glcd_w(row1, 2).max(glcd_w(row2, 2))
+        };
         let mut canvas = SlideCanvas::new(img, base_x as i32, mw as i32);
         canvas.text(
             row1,
@@ -103,7 +124,13 @@ pub fn draw_weather_page(
     } else {
         // --- 128x32: icon | day + condition | temps right-aligned ---
         let icon_x = base_x as i32 + 4 + offset_x;
-        let (row1, row2) = (slide.temp_min.as_str(), slide.temp_max.as_str());
+        let row1 = slide.temp_min.as_str();
+        let row2 = now_row2(
+            slide,
+            base_x as i32 + mw as i32 - 4 + offset_x,
+            icon_x + 24 + 4,
+            1,
+        );
         let icon_y = (mh as i32 - 24) / 2 + offset_y;
         draw_icon_scaled(img, &slide.icon, icon_x, icon_y, 1);
 
@@ -114,11 +141,15 @@ pub fn draw_weather_page(
         canvas.text(row2, right_edge - glcd_w(row2, 1), y2, 1, color_afternoon);
 
         let mid_x = icon_x + 24 + 4;
-        let temp_w = glcd_w(row1, 1).max(glcd_w(row2, 1));
+        let temp_w = if slide.is_now {
+            glcd_w(row1, 1)
+        } else {
+            glcd_w(row1, 1).max(glcd_w(row2, 1))
+        };
         let mid_w = right_edge - temp_w - 4 - mid_x;
         let label = fit_long_short(&slide.label_long, &slide.label, mid_w);
         canvas.text(&label, mid_x, y1, 1, color_label);
-        if !slide.condition.is_empty() {
+        if !slide.is_now && !slide.condition.is_empty() {
             let desc = fit_long_short(&slide.condition_long, &slide.condition, mid_w);
             canvas.text(&desc, mid_x, y2, 1, color_desc);
         }
@@ -229,8 +260,21 @@ fn glcd_w(text: &str, size: i32) -> i32 {
     }
 }
 
+/// Row 2 text: on the NOW page the wind direction is dropped first when the
+/// right-aligned line would start left of the middle column.
+fn now_row2<'a>(slide: &'a DayForecast, right_edge: i32, mid_x: i32, size: i32) -> &'a str {
+    if slide.is_now
+        && !slide.now_line2_short.is_empty()
+        && right_edge - glcd_w(&slide.temp_max, size) < mid_x
+    {
+        &slide.now_line2_short
+    } else {
+        &slide.temp_max
+    }
+}
+
 /// The long text if it fits `width` at size 1, else the short one, else the
-/// short one truncated ("Partly cl." style; 128x32).
+/// short one truncated ("Partly cl." style, 128x32).
 fn fit_long_short(long: &str, short: &str, width: i32) -> String {
     if !long.is_empty() && glcd_w(long, 1) <= width {
         return long.to_string();
