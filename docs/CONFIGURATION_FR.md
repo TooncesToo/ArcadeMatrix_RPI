@@ -15,6 +15,7 @@ Le système de configuration repose exclusivement sur un unique fichier `config.
   "matrix": { ... },
   "wifi": { ... },
   "mqtt": { ... },
+  "data_mqtt": { ... },
   "system": { ... },
   "instances": [ ... ],
   "rotation": [ ... ],
@@ -102,6 +103,19 @@ Le démon de synchronisation peut être installé sur la console (Recalbox, Bato
 > Pour Batocera, la version **v33 ou supérieure** est requise pour le changement dynamique de marquee pendant la navigation (hooks `game-selected` et `system-selected`). Batocera v32 et versions antérieures ne déclenchent que les événements de lancement/arrêt de jeu. Recalbox est supporté sur toutes ses versions.
 
 ---
+
+## 5b. Le bloc `"data_mqtt"` (broker Home Assistant)
+
+Identifiants du broker pour le moteur `homeassistant`. Cette connexion est distincte du bloc `"mqtt"` ci-dessus (marquees / contrôle, qui peut prendre la main sur l'affichage). Rien ne tourne en arrière-plan : le moteur ne se connecte que pendant que son écran est affiché et se déconnecte quand il quitte la rotation.
+
+| Clé | Type | Description |
+| :--- | :--- | :--- |
+| `broker` | `String` | Hôte ou IP du broker (par ex. l'add-on Mosquitto de Home Assistant). |
+| `port` | `int` | Port du broker (défaut `1883`). |
+| `user` | `String` | Utilisateur (optionnel). |
+| `pass` | `String` | Mot de passe (optionnel). |
+
+L'identifiant client MQTT est `<hostname>-data`. Les changements s'appliquent à la prochaine activation du moteur (sans redémarrage).
 
 ## 6. Sécurité de l'API (`api_auth_enabled` / `api_token`)
 
@@ -351,6 +365,56 @@ OpenWeatherMap utilise le code pays ISO 3166 (et le code d'état à 2 lettres po
 | Champ | Type | Défaut | Description |
 | :--- | :--- | :--- | :--- |
 | *(auto)* | `None` | — | Moteur interne de synchronisation des marquees Pixelcade / Recalbox / Batocera reçus via MQTT ou Webhook. |
+
+### Moteur : `homeassistant` (Home Assistant)
+| Champ | Type | Défaut | Description |
+| :--- | :--- | :--- | :--- |
+| `topics` | `String` | `""` | Jusqu'à 6 topics MQTT complets, séparés par des virgules. Chaque topic est une page. |
+| `page_seconds` | `int` | `10` | Secondes par page (minimum `3`). Les pages défilent dans l'ordre des topics pendant l'affichage. |
+| `show_header` | `Boolean` | `true` | En-tête du graphique / titre des valeurs. |
+
+Réglez la durée de rotation à environ pages x `page_seconds`. À l'activation, le moteur se connecte avec les identifiants `data_mqtt`, s'abonne à ses topics et affiche les valeurs retained publiées par Home Assistant ; il reste abonné pour les mises à jour pendant l'affichage, puis se déconnecte et libère tout en sortant. Messages : `CONNEXION`, `PAS DE CONNEXION` (broker injoignable), `PAS DE DONNEES` (topic sans message retained après 3 s ; un message retained vide efface aussi une page).
+
+Type de page : `"type"` (`graph`, `values`, `weather`) ; sinon `series` = graphique, `tiles` = valeurs, `current` / `days` = météo. Messages jusqu'à 8 Ko. Home Assistant gère l'historique et le formatage ; le panneau ne collecte rien et ne calcule rien.
+
+- **graph** : jusqu'à 4 séries de 288 points, alignées à droite (dernier = plus récent). `style` `bar` (empilé depuis la ligne zéro si `stack` vaut true, par défaut) ou `line` (`null` = trou). `min` / `max` (auto si absents), `yaxis` (étiquettes, panneaux de 64 px), jusqu'à 96 `bands` (les plus récentes gardées), `marks`, `summary_color`, `title_short` (seulement si `title` ne tient pas), `legend` (jusqu'à 4 mots colorés en bas, panneaux de 64 px uniquement).
+- **values** : 1 à 4 tuiles, libellé en haut et valeur + unité dessous, centrés. Textes déjà formatés ; `label_short` seulement si le libellé ne tient pas ; une valeur n'est jamais tronquée (l'unité est retirée d'abord).
+- **weather** : une page ACTU. (mesure en direct `current.temp`, humidité, direction et vitesse du vent) puis une page par jour de prévision (jusqu'à 5), chacune `page_seconds`, dessinées comme le moteur météo. `units` : `imperial` = °F (maximale au-dessus), `metric` = °C.
+
+```json
+{"type": "graph", "title": "DOWNSTAIRS COOL", "title_short": "DOWN COOL",
+ "summary": "76°", "summary_color": "#40A0FF", "slots": 96, "min": 68, "max": 90, "yaxis": true,
+ "series": [{"label": "INSIDE", "style": "line", "color": "#40A0FF", "data": [75.0, 75.5, null, 76.0]},
+            {"label": "OUTSIDE", "style": "line", "color": "#FF4020", "data": [88.0, 87.5, 86.0, 85.0]}],
+ "bands": [{"from": 60, "to": 61, "color": "#183860"}],
+ "marks": [{"at": 28, "color": "#404040"}],
+ "legend": [{"text": "INSIDE", "color": "#40A0FF"}, {"text": "OUTSIDE", "color": "#FF4020"}]}
+```
+
+```json
+{"type": "values", "title": "HOME",
+ "tiles": [{"label": "DOWNSTAIRS", "label_short": "DOWN", "value": "76", "unit": "°F", "color": "#FFFFFF"},
+           {"label": "AC", "value": "18.2", "unit": "HOURS", "color": "#40C0FF", "label_color": "#808080"}]}
+```
+
+```json
+{"type": "weather", "units": "imperial",
+ "current": {"temp": 75, "condition": "clear-night", "humidity": 47, "wind": 7, "wind_unit": "mph", "wind_dir": "NE"},
+ "days": [{"temp_max": 89, "temp_min": 70, "condition": "sunny"},
+          {"temp_max": 90, "temp_min": 71, "condition": "partlycloudy"}]}
+```
+
+```yaml
+# Home Assistant automation action: publish a retained page.
+- action: mqtt.publish
+  data:
+    topic: arcadematrix/values/energy
+    retain: true
+    payload: >-
+      {{ {"type": "values", "title": "HOME",
+          "tiles": [{"label": "OUTSIDE", "label_short": "OUT",
+                     "value": states("sensor.outdoor_temperature") | round(0) | string, "unit": "°F"}]} | to_json }}
+```
 
 ---
 
