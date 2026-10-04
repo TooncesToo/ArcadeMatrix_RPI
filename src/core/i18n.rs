@@ -435,6 +435,133 @@ pub fn gnews_status_label(lang: Lang, status: GNewsStatus) -> &'static str {
     }
 }
 
+// ----------------------------------------------------------------------------
+// 7. Long Weather Labels (wide layouts)
+// ----------------------------------------------------------------------------
+/// Unabbreviated day label for wide weather layouts (same table as the ESP32
+/// `I18n::getWeatherDayLabelLong`).
+pub fn weather_day_label_long(
+    lang: Lang,
+    day_of_week: usize,
+    is_today: bool,
+    is_tomorrow: bool,
+) -> &'static str {
+    if is_today {
+        return match lang {
+            Lang::En => "TODAY",
+            Lang::Es => "HOY",
+            Lang::Fr => "AUJOURD'HUI",
+        };
+    }
+    if is_tomorrow {
+        return match lang {
+            Lang::En => "TOMORROW",
+            Lang::Es => "MANANA",
+            Lang::Fr => "DEMAIN",
+        };
+    }
+    const EN: [&str; 7] = [
+        "SUNDAY",
+        "MONDAY",
+        "TUESDAY",
+        "WEDNESDAY",
+        "THURSDAY",
+        "FRIDAY",
+        "SATURDAY",
+    ];
+    const ES: [&str; 7] = [
+        "DOMINGO",
+        "LUNES",
+        "MARTES",
+        "MIERCOLES",
+        "JUEVES",
+        "VIERNES",
+        "SABADO",
+    ];
+    const FR: [&str; 7] = [
+        "DIMANCHE", "LUNDI", "MARDI", "MERCREDI", "JEUDI", "VENDREDI", "SAMEDI",
+    ];
+    match lang {
+        Lang::En => EN[day_of_week % 7],
+        Lang::Es => ES[day_of_week % 7],
+        Lang::Fr => FR[day_of_week % 7],
+    }
+}
+
+/// Unabbreviated OpenWeatherMap condition for wide weather layouts (same table
+/// as the ESP32 `I18n::getWeatherConditionLong`).
+pub fn weather_condition_long(lang: Lang, raw_condition: &str) -> &'static str {
+    let l = raw_condition.trim().to_lowercase();
+    let has = |k: &str| l.contains(k);
+    let idx = if has("clear") || has("sun") {
+        0
+    } else if has("few clouds") || has("scattered") {
+        1
+    } else if has("overcast") {
+        2
+    } else if has("cloud") {
+        3
+    } else if has("thunder") || has("storm") {
+        4
+    } else if has("drizzle") {
+        5
+    } else if has("rain") {
+        6
+    } else if has("snow") {
+        7
+    } else if has("mist") {
+        8
+    } else if has("fog") {
+        9
+    } else {
+        10
+    };
+    const EN: [&str; 11] = [
+        "Clear",
+        "Partly Cloudy",
+        "Overcast",
+        "Cloudy",
+        "Thunderstorm",
+        "Drizzle",
+        "Rain",
+        "Snow",
+        "Mist",
+        "Fog",
+        "Clear",
+    ];
+    const ES: [&str; 11] = [
+        "Soleado",
+        "Parcialmente Nublado",
+        "Cubierto",
+        "Nublado",
+        "Tormenta",
+        "Llovizna",
+        "Lluvia",
+        "Nieve",
+        "Bruma",
+        "Niebla",
+        "Variable",
+    ];
+    const FR: [&str; 11] = [
+        "Soleil",
+        "Eclaircies",
+        "Couvert",
+        "Nuageux",
+        "Orage",
+        "Bruine",
+        "Pluie",
+        "Neige",
+        "Brume",
+        "Brouillard",
+        "Variable",
+    ];
+    match lang {
+        Lang::En => EN[idx],
+        Lang::Es => ES[idx],
+        Lang::Fr => FR[idx],
+    }
+}
+
 // ============================================================================
 // Unit Tests
 // ============================================================================
