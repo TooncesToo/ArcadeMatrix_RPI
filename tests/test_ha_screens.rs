@@ -150,27 +150,23 @@ fn legend_row_and_summary_colour_on_tall_panels() {
     assert_eq!(g.summary_color, Some((0x40, 0xA0, 0xFF)));
     let mut m = MockMatrix::new(256, 64);
     render_graph(&mut m, Some(&g), true, "");
-    // px0 = 8 (labels "90"/"68"): INSIDE x 8..30, OUTSIDE 39..65, COOLING 74..100, rows 15..19.
-    let (x0, y0, x1, y1) = bbox(&m, (0x40, 0xA0, 0xFF))
-        .map(|_| {
-            let xs: Vec<u32> = (0..256)
-                .filter(|&x| (15..20).any(|y| px(&m, x, y) == (0x40, 0xA0, 0xFF)))
-                .collect();
-            let ys: Vec<u32> = (0..64)
-                .filter(|&y| (0..40).any(|x| px(&m, x, y) == (0x40, 0xA0, 0xFF)))
-                .collect();
-            (xs[0], ys[0], *xs.last().unwrap(), *ys.last().unwrap())
-        })
-        .unwrap();
-    assert_eq!((x0, x1, y0, y1), (8, 30, 15, 19));
-    assert!(lit_in(&m, 39..66, 15..20, (0xFF, 0x40, 0x20)));
-    assert!(lit_in(&m, 74..101, 15..20, (0x50, 0x80, 0xC0)));
+    // Legend at the bottom (addendum 8): px0 = 8 (labels "90"/"68"),
+    // INSIDE x 8..30, OUTSIDE 39..65, COOLING 74..100, rows 58..62; row 63 blank.
+    let blue = (0x40, 0xA0, 0xFF);
+    let xs: Vec<u32> = (0..256)
+        .filter(|&x| (58..63).any(|y| px(&m, x, y) == blue))
+        .collect();
+    assert_eq!((xs[0], *xs.last().unwrap()), (8, 30));
+    assert!(lit_in(&m, 39..66, 58..63, (0xFF, 0x40, 0x20)));
+    assert!(lit_in(&m, 74..101, 58..63, (0x50, 0x80, 0xC0)));
+    assert!((0..256).all(|x| px(&m, x, 63) == (0, 0, 0)));
     // Summary uses summary_color (on the header rows, right side).
-    assert!(lit_in(&m, 200..256, 0..14, (0x40, 0xA0, 0xFF)));
-    // Plot starts at row 22: the value-90 line sits on row 22, max axis label on rows 22..26.
-    assert_eq!(px(&m, 8, 22), (0x20, 0x60, 0xFF));
-    assert!(lit_in(&m, 0..7, 22..27, (0x70, 0x70, 0x70)));
-    assert!(!lit_in(&m, 8..256, 20..22, (0x20, 0x60, 0xFF)));
+    assert!(lit_in(&m, 200..256, 0..14, blue));
+    // Plot is back to rows 15..56: value 90 on row 15, axis max on 15..19, min on 52..56.
+    assert_eq!(px(&m, 8, 15), (0x20, 0x60, 0xFF));
+    assert!(lit_in(&m, 0..7, 15..20, (0x70, 0x70, 0x70)));
+    assert!(lit_in(&m, 0..7, 52..57, (0x70, 0x70, 0x70)));
+    assert!(!lit_in(&m, 0..7, 57..64, (0x70, 0x70, 0x70)));
 }
 
 #[test]
@@ -199,9 +195,9 @@ fn too_wide_legend_drops_items_from_the_end() {
     let mut m = MockMatrix::new(256, 64);
     render_graph(&mut m, Some(&g), false, "");
     // 79 px each + 8 gap: A 0..78, B 87..165, C would end at 252 (fits), D at 261 (dropped).
-    assert!(lit_in(&m, 0..79, 0..5, (255, 0, 0)));
-    assert!(lit_in(&m, 87..166, 0..5, (0, 255, 0)));
-    assert!(lit_in(&m, 174..253, 0..5, (0, 0, 255)));
+    assert!(lit_in(&m, 0..79, 58..63, (255, 0, 0)));
+    assert!(lit_in(&m, 87..166, 58..63, (0, 255, 0)));
+    assert!(lit_in(&m, 174..253, 58..63, (0, 0, 255)));
     assert!(!lit_in(&m, 0..256, 0..64, (255, 255, 0)));
 }
 
@@ -540,6 +536,51 @@ fn weather_payload_to_day_forecasts() {
 }
 
 #[test]
+fn now_page_wind_direction() {
+    let w = parse_weather_payload(
+        r#"{"current":{"temp":80,"humidity":41,"wind":9,"wind_unit":"mph","wind_dir":"NE"}}"#,
+    )
+    .unwrap();
+    let f = ha_forecasts(&w, "en", 0);
+    assert_eq!(f[0].temp_max, "41%  NE 9mph");
+    assert_eq!(f[0].now_line2_short, "41%  9mph");
+    // No speed: the direction never stands alone.
+    let w =
+        parse_weather_payload(r#"{"current":{"temp":80,"humidity":41,"wind_dir":"NE"}}"#).unwrap();
+    assert_eq!(ha_forecasts(&w, "en", 0)[0].temp_max, "41%");
+    // Too long for 128x32 (16 chars = 95 px > 92): the direction is dropped, numbers stay.
+    let m = render_weather_day(
+        r#"{"units":"imperial","current":{"temp":100,"humidity":100,"wind":100,"wind_unit":"km/h","wind_dir":"NW"}}"#,
+        128,
+        32,
+        "dir_drop",
+    );
+    let grey: Vec<u32> = (0..128)
+        .filter(|&x| (0..32).any(|y| px(&m, x, y) == (210, 210, 210)))
+        .collect();
+    // "100%  100km/h" = 13 chars = 77 px, right-aligned to x=123: it starts at x=47,
+    // whose column is blank in the GLCD "1", so the first lit pixel is on x=48.
+    assert_eq!((grey[0], *grey.last().unwrap()), (48, 123));
+    if let Ok(out) = std::env::var("HA_PREVIEW_DIR") {
+        let live = render_weather_day(
+            r#"{"units":"imperial","current":{"temp":80,"condition":"clear-night","humidity":41,"wind":9.0,"wind_unit":"mph","wind_dir":"NE"},"days":[{"temp_max":95,"temp_min":72,"condition":"sunny"}]}"#,
+            128,
+            32,
+            "dir_live",
+        );
+        save(&live, &out, "weather_128_now_dir");
+        let live64 = render_weather_day(
+            r#"{"units":"imperial","current":{"temp":80,"condition":"clear-night","humidity":41,"wind":9.0,"wind_unit":"mph","wind_dir":"NE"},"days":[{"temp_max":95,"temp_min":72,"condition":"sunny"}]}"#,
+            256,
+            64,
+            "dir_live64",
+        );
+        save(&live64, &out, "weather_256_now_dir");
+        save(&m, &out, "weather_128_now_dir_dropped");
+    }
+}
+
+#[test]
 fn now_page_second_line_falls_back() {
     let only_hum =
         parse_weather_payload(r#"{"current":{"temp":60,"humidity":30.4,"condition":"rainy"}}"#)
@@ -561,7 +602,7 @@ fn now_page_second_line_falls_back() {
 fn now_page_widest_line_fits_128() {
     // "34%  12mph" (two-digit wind) must stay on a 128 px panel.
     let m = render_weather_day(
-        r#"{"units":"imperial","current":{"temp":104,"condition":"sunny","humidity":34,"wind":12,"wind_unit":"mph"}}"#,
+        r#"{"units":"imperial","current":{"temp":104,"condition":"sunny","humidity":34,"wind":12,"wind_unit":"mph","wind_dir":"NW"}}"#,
         128,
         32,
         "fit",
@@ -570,11 +611,11 @@ fn now_page_widest_line_fits_128() {
     let grey = |x: u32| (0..32).any(|y| px(&m, x, y) == (210, 210, 210));
     let last = (0..128).rev().find(|&x| grey(x)).expect("line 2 drawn");
     assert!(last < 127, "line 2 ends at x={}", last);
-    // Right-aligned: line 2 ends on x=123 and starts at 123 - 58 = 65; the live temp
+    // Right-aligned: "34%  NW 12mph" (77 px) ends on x=123 and starts at 47; the live temp
     // "104°F" ends on x=123 too, and "NOW" (label) sits at x=32 on row 4 without touching it.
     assert_eq!(last, 123);
     let first = (0..128).find(|&x| grey(x)).unwrap();
-    assert_eq!(first, 65);
+    assert_eq!(first, 47);
     let (lx0, _, lx1, _) = bbox(&m, (180, 180, 255)).unwrap();
     let (wx0, _, _, _) = bbox(&m, (255, 255, 255)).unwrap();
     assert!(

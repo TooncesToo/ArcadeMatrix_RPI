@@ -508,9 +508,15 @@ impl WeatherEngine {
 
             if mw >= 256 && mh >= 64 {
                 // --- 256x64: three columns, as the ESP32 `drawForecast` (layout-v2.md B) ---
-                let (row1, row2) = (slide.temp_min.as_str(), slide.temp_max.as_str());
                 let margin = 8;
                 let icon_x = base_x as i32 + margin + offset_x;
+                let row1 = slide.temp_min.as_str();
+                let row2 = now_row2(
+                    slide,
+                    base_x as i32 + mw as i32 - margin + offset_x,
+                    icon_x + 48 + margin,
+                    2,
+                );
                 let icon_y = (mh as i32 - 48) / 2 + offset_y;
                 Self::draw_icon_scaled(&mut panorama, &slide.icon, icon_x, icon_y, 2);
 
@@ -569,8 +575,14 @@ impl WeatherEngine {
                 }
             } else if is_wide && !is_tall {
                 // --- 128x32: icon | day + condition | temps right-aligned (layout-v2.md B, addendum 6) ---
-                let (row1, row2) = (slide.temp_min.as_str(), slide.temp_max.as_str());
                 let icon_x = base_x as i32 + 4 + offset_x;
+                let row1 = slide.temp_min.as_str();
+                let row2 = now_row2(
+                    slide,
+                    base_x as i32 + mw as i32 - 4 + offset_x,
+                    icon_x + 24 + 4,
+                    1,
+                );
                 let icon_y = (mh as i32 - 24) / 2 + offset_y;
                 Self::draw_icon_scaled(&mut panorama, &slide.icon, icon_x, icon_y, 1);
 
@@ -950,6 +962,19 @@ fn glcd_w(text: &str, size: i32) -> i32 {
     }
 }
 
+/// Row 2 text: on the NOW page the wind direction is dropped first when the
+/// right-aligned line would start left of the middle column (layout-v2.md B).
+fn now_row2<'a>(slide: &'a DayForecast, right_edge: i32, mid_x: i32, size: i32) -> &'a str {
+    if slide.is_now
+        && !slide.now_line2_short.is_empty()
+        && right_edge - glcd_w(&slide.temp_max, size) < mid_x
+    {
+        &slide.now_line2_short
+    } else {
+        &slide.temp_max
+    }
+}
+
 /// The long text if it fits `width` at size 1, else the short one, else the
 /// short one truncated ("Partly cl." style; layout-v2.md B, 128x32).
 fn fit_long_short(long: &str, short: &str, width: i32) -> String {
@@ -1044,12 +1069,21 @@ pub fn ha_forecasts(
         let wind = w
             .wind
             .map(|v| format!("{}{}", v.round() as i64, w.wind_unit.trim()));
-        let line2 = match (hum, wind) {
-            // Two spaces so "34%  5mph" doesn't read as one value.
+        // Two spaces so "34%  5mph" doesn't read as one value.
+        let join = |h: &Option<String>, v: &Option<String>| match (h, v) {
             (Some(h), Some(v)) => format!("{}  {}", h, v),
-            (Some(h), None) => h,
-            (None, Some(v)) => v,
-            (None, None) => cond_label,
+            (Some(h), None) => h.clone(),
+            (None, Some(v)) => v.clone(),
+            (None, None) => cond_label.clone(),
+        };
+        // Wind direction goes in front of the speed ("41%  NE 9mph"); it never stands alone.
+        let wind_dir = wind
+            .as_ref()
+            .filter(|_| !w.wind_dir.is_empty())
+            .map(|v| format!("{} {}", w.wind_dir, v));
+        let (line2, now_line2_short) = match wind_dir {
+            Some(wd) => (join(&hum, &Some(wd)), join(&hum, &wind)),
+            None => (join(&hum, &wind), String::new()),
         };
         slides.push(DayForecast {
             label: i18n::weather_now_label(l).to_string(),
@@ -1061,6 +1095,7 @@ pub fn ha_forecasts(
             condition_long: String::new(),
             icon: i18n::ha_weather_icon(&w.current_condition).to_string(),
             is_now: true,
+            now_line2_short,
         });
     }
     slides.extend(days.iter().enumerate().map(|(i, d)| {
@@ -1094,6 +1129,7 @@ pub fn ha_forecasts(
             condition_long,
             icon: i18n::ha_weather_icon(cond_raw).to_string(),
             is_now: false,
+            now_line2_short: String::new(),
         }
     }));
     slides
