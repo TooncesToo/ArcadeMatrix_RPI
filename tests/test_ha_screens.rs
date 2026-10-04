@@ -74,6 +74,59 @@ fn explicit_min_max_and_auto_ranges() {
 }
 
 #[test]
+fn ninety_six_bands_render_and_extra_bands_keep_newest() {
+    use arcadematrix::core::data_feed::MAX_BANDS;
+    assert_eq!(MAX_BANDS, 96);
+    // One band per 15 min slot, each with its own colour (cooling intensity).
+    let bands: Vec<String> = (0..96)
+        .map(|i| {
+            format!(
+                r##"{{"from":{},"to":{},"color":"#{:02X}0000"}}"##,
+                i,
+                i + 1,
+                i + 100
+            )
+        })
+        .collect();
+    let json = format!(
+        r#"{{"slots":96,"min":0,"max":10,"series":[{{"style":"line","data":[]}}],"bands":[{}]}}"#,
+        bands.join(",")
+    );
+    let g = parse_graph_payload(&json).unwrap();
+    assert_eq!(g.bands.len(), 96);
+    for (w, h) in [(128u32, 32u32), (256, 64)] {
+        let mut m = MockMatrix::new(w, h);
+        render_graph(&mut m, Some(&g), false, "");
+        // Every column is covered by its own slot's band colour.
+        for x in 0..w {
+            let slot = (x as usize * 96) / w as usize;
+            assert_eq!(
+                px(&m, x, h - 1),
+                ((slot + 100) as u8, 0, 0),
+                "{}x{} col {}",
+                w,
+                h,
+                x
+            );
+        }
+    }
+
+    // 100 bands, sent out of order: the 96 with the highest `from` survive.
+    let many: Vec<String> = (0..100)
+        .rev()
+        .map(|i| format!(r##"{{"from":{},"to":{},"color":"#101010"}}"##, i, i + 1))
+        .collect();
+    let g = parse_graph_payload(&format!(
+        r#"{{"slots":100,"series":[{{"data":[]}}],"bands":[{}]}}"#,
+        many.join(",")
+    ))
+    .unwrap();
+    assert_eq!(g.bands.len(), 96);
+    assert_eq!(g.bands.first().unwrap().from, 4);
+    assert_eq!(g.bands.last().unwrap().from, 99);
+}
+
+#[test]
 fn null_is_gap_for_lines_and_zero_for_bars() {
     let g = parse_graph_payload(
         r#"{"series":[{"style":"line","data":[1,null,3]},{"data":[1,null,3]}]}"#,

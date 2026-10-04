@@ -23,6 +23,9 @@ pub const MAX_PAYLOAD_BYTES: usize = 8192;
 pub const MAX_SERIES: usize = 4;
 /// Maximum number of points per series (extra points are ignored).
 pub const MAX_POINTS: usize = 288;
+/// Maximum number of background bands in one graph payload. When a payload
+/// sends more, the newest (highest `from`) are kept.
+pub const MAX_BANDS: usize = 96;
 /// Maximum number of tiles in one values payload (extra tiles are ignored).
 pub const MAX_TILES: usize = 4;
 /// Maximum number of forecast days kept from a weather payload.
@@ -232,6 +235,11 @@ fn parse_graph_value(root: &Value) -> Option<GraphData> {
                 }
             }
         }
+    }
+    if bands.len() > MAX_BANDS {
+        // Keep the newest bands (highest `from`), drawn oldest first.
+        bands.sort_by_key(|b| b.from);
+        bands.drain(..bands.len() - MAX_BANDS);
     }
 
     let mut marks = Vec::new();
