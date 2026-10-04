@@ -420,7 +420,7 @@ Formato del mensaje (v1):
 | `series` | Hasta 4 series de hasta 288 números. `null` o valores no numéricos = `0`. |
 | `max` | Tope de la escala. Ausente o `<= 0` = automático (mayor total apilado). |
 | `stack` | `true`: series apiladas en orden. `false`: superpuestas, la última encima. |
-| `bands` | Rangos de columnas de fondo en índices `[from, to)`, p. ej. horas punta. |
+| `bands` | Rangos de columnas de fondo en índices `[from, to)`, p. ej. horas punta. Hasta 96 rangos, cada uno con su color; si hay más, se conservan los más recientes (`from` más alto). |
 | `marks` | Línea vertical punteada en el borde izquierdo del índice `at`, p. ej. medianoche. |
 | `min` | Base de la escala (por defecto `0`). `max` ausente o `<= min` = tope automático. Con alguna serie de línea, la escala automática cubre los datos más un 5 % (mínimo 0,5) a cada lado. |
 | `style` (por serie) | `"bar"` (por defecto) o `"line"`. Las barras parten de la línea cero (negativos hacia abajo). Las líneas (1 px, escalonadas) se dibujan encima; `null` = hueco. |

@@ -436,7 +436,7 @@ Payload (v1):
 | `series` | Up to 4 series of up to 288 numbers. `null` or non-numbers count as `0`. |
 | `max` | Top of the y scale. Absent or `<= 0` = automatic (highest stacked total). |
 | `stack` | `true`: series stacked bottom-up in order. `false`: overlaid, later series on top. |
-| `bands` | Background column ranges in slot indices `[from, to)`, e.g. on-peak hours. |
+| `bands` | Background column ranges in slot indices `[from, to)`, e.g. on-peak hours. Up to 96 bands, each with its own colour; with more, the newest (highest `from`) are kept. |
 | `marks` | Dotted vertical line at the left edge of slot `at`, e.g. midnight. |
 | `min` | Bottom of the y scale (default `0`). With `max` absent or `<= min` the top is automatic. With any line series the automatic range is the data range padded by 5 % (at least 0.5) each side. |
 | `style` (per series) | `"bar"` (default) or `"line"`. Bars grow from the zero line (negatives go down). Lines are 1 px steps drawn on top; `null` leaves a gap. |

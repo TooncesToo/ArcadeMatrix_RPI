@@ -418,7 +418,7 @@ Format du message (v1) :
 | `series` | Jusqu'à 4 séries de 288 nombres maximum. `null` ou non-nombre = `0`. |
 | `max` | Haut de l'échelle. Absent ou `<= 0` = automatique (plus haut total empilé). |
 | `stack` | `true` : séries empilées dans l'ordre. `false` : superposées, la dernière au-dessus. |
-| `bands` | Plages de colonnes en fond, en indices `[from, to)`, par ex. heures pleines. |
+| `bands` | Plages de colonnes en fond, en indices `[from, to)`, par ex. heures pleines. Jusqu'à 96 plages, chacune avec sa couleur ; au-delà, les plus récentes (`from` le plus élevé) sont gardées. |
 | `marks` | Ligne verticale pointillée au bord gauche de l'indice `at`, par ex. minuit. |
 | `min` | Bas de l'échelle (défaut `0`). `max` absent ou `<= min` = haut automatique. Avec une série en ligne, l'échelle automatique couvre les données plus 5 % (au moins 0,5) de chaque côté. |
 | `style` (par série) | `"bar"` (défaut) ou `"line"`. Les barres partent de la ligne zéro (négatif vers le bas). Les lignes (1 px, en escalier) sont dessinées par-dessus ; `null` = trou. |
