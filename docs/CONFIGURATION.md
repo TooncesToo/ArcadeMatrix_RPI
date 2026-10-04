@@ -15,6 +15,7 @@ The configuration system relies exclusively on a single `config.json` file locat
   "matrix": { ... },
   "wifi": { ... },
   "mqtt": { ... },
+  "data_mqtt": { ... },
   "system": { ... },
   "instances": [ ... ],
   "rotation": [ ... ],
@@ -102,6 +103,19 @@ The sync daemon can be installed on the console (Recalbox, Batocera, RetroPie) o
 > For Batocera, version **v33 or newer** is required for dynamic marquee browsing (`game-selected` and `system-selected` hooks). Batocera v32 and earlier only trigger game launch/stop events. Recalbox is supported on all versions.
 
 ---
+
+## 5b. The `"data_mqtt"` Block (Home Assistant broker)
+
+Broker credentials for the `homeassistant` engine. This connection is separate from the `"mqtt"` block above (marquees / control, which can take over the display). Nothing runs in the background: the engine connects only while its screen is active and disconnects when it leaves the rotation.
+
+| Key | Type | Description |
+| :--- | :--- | :--- |
+| `broker` | `String` | Broker host or IP (e.g. the Home Assistant Mosquitto add-on). |
+| `port` | `int` | Broker port (default `1883`). |
+| `user` | `String` | Username (optional). |
+| `pass` | `String` | Password (optional). |
+
+The MQTT client id is `<hostname>-data`. Changes apply on the engine's next activation (no restart).
 
 ## 6. API Security (`api_auth_enabled` / `api_token`)
 
@@ -284,6 +298,8 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 | `offset_x` | `int` | `0` | `-64` to `64` | Horizontal pixel shift. |
 | `offset_y` | `int` | `0` | `-32` to `32` | Vertical pixel shift. |
 
+On 128x32 and 256x64 panels the weather pages use the same layout as the ESP32 firmware: icon, then the day and condition (the long forms when they fit), then the temperatures right-aligned. In °F the high is shown above the low (US convention).
+
 #### How to Format the `city` Field on OpenWeatherMap
 OpenWeatherMap uses the ISO 3166 country code (and 2-letter state code for the US) to disambiguate locations:
 * **International Locations:** Use `City,CountryCode` (e.g. `Paris,FR`, `London,GB`, `Tokyo,JP`, `Montreal,CA`).
@@ -367,6 +383,56 @@ OpenWeatherMap uses the ISO 3166 country code (and 2-letter state code for the U
 | Field | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | *(auto)* | `None` | — | Internal Pixelcade/Recalbox/Batocera marquee sync engine. Displays scraped game box-art and marquees received via MQTT / Webhook. |
+
+### Engine: `homeassistant` (Home Assistant)
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `topics` | `String` | `""` | Up to 6 full MQTT topics, comma separated. Each topic is one page. |
+| `page_seconds` | `int` | `10` | Seconds per page (minimum `3`). Pages cycle in topic order while the screen is shown. |
+| `show_header` | `Boolean` | `true` | Graph header / values title. |
+
+Set the rotation duration to roughly pages x `page_seconds`. On activation the engine connects with the `data_mqtt` credentials, subscribes to its topics and draws the retained values Home Assistant published; it stays subscribed for live updates while on screen and disconnects and frees everything when it leaves. Notices: `CONNECTING`, `NO CONNECTION` (broker unreachable), `NO DATA` (topic with no retained payload after 3 s; an empty retained payload also clears a page).
+
+Page type: `"type"` (`graph`, `values`, `weather`); without it, `series` = graph, `tiles` = values, `current` / `days` = weather. Payloads up to 8 KB. Home Assistant does the history and formatting; the sign never collects points or does math.
+
+- **graph**: up to 4 series of up to 288 points, right-aligned (last = newest). `style` `bar` (stacked from the zero line when `stack` is true, the default) or `line` (`null` = gap). `min` / `max` (auto when absent), `yaxis` (labels, 64 px panels), up to 96 `bands` (newest kept), `marks`, `summary_color`, `title_short` (used only when `title` doesn't fit), `legend` (up to 4 coloured words at the bottom, 64 px panels only).
+- **values**: 1 to 4 tiles, label on top and value + unit below, centred. Preformatted strings; `label_short` only when the label doesn't fit; a value is never truncated (the unit is dropped first).
+- **weather**: a NOW page (live `current.temp`, humidity, wind direction and speed) then one page per forecast day (up to 5), each `page_seconds`, drawn like the weather engine. `units`: `imperial` = °F (high above low), `metric` = °C.
+
+```json
+{"type": "graph", "title": "DOWNSTAIRS COOL", "title_short": "DOWN COOL",
+ "summary": "76°", "summary_color": "#40A0FF", "slots": 96, "min": 68, "max": 90, "yaxis": true,
+ "series": [{"label": "INSIDE", "style": "line", "color": "#40A0FF", "data": [75.0, 75.5, null, 76.0]},
+            {"label": "OUTSIDE", "style": "line", "color": "#FF4020", "data": [88.0, 87.5, 86.0, 85.0]}],
+ "bands": [{"from": 60, "to": 61, "color": "#183860"}],
+ "marks": [{"at": 28, "color": "#404040"}],
+ "legend": [{"text": "INSIDE", "color": "#40A0FF"}, {"text": "OUTSIDE", "color": "#FF4020"}]}
+```
+
+```json
+{"type": "values", "title": "HOME",
+ "tiles": [{"label": "DOWNSTAIRS", "label_short": "DOWN", "value": "76", "unit": "°F", "color": "#FFFFFF"},
+           {"label": "AC", "value": "18.2", "unit": "HOURS", "color": "#40C0FF", "label_color": "#808080"}]}
+```
+
+```json
+{"type": "weather", "units": "imperial",
+ "current": {"temp": 75, "condition": "clear-night", "humidity": 47, "wind": 7, "wind_unit": "mph", "wind_dir": "NE"},
+ "days": [{"temp_max": 89, "temp_min": 70, "condition": "sunny"},
+          {"temp_max": 90, "temp_min": 71, "condition": "partlycloudy"}]}
+```
+
+```yaml
+# Home Assistant automation action: publish a retained page.
+- action: mqtt.publish
+  data:
+    topic: arcadematrix/values/energy
+    retain: true
+    payload: >-
+      {{ {"type": "values", "title": "HOME",
+          "tiles": [{"label": "OUTSIDE", "label_short": "OUT",
+                     "value": states("sensor.outdoor_temperature") | round(0) | string, "unit": "°F"}]} | to_json }}
+```
 
 ---
 
