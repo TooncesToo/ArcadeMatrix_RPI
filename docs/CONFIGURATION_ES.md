@@ -119,6 +119,7 @@ Una segunda conexión MQTT, independiente del bloque `"mqtt"` de arriba. **Nunca
 
 - El id de cliente MQTT es `<hostname>-data`, así varios paneles pueden compartir un broker.
 - Se guardan hasta 8 topics, 8192 bytes por mensaje (los mayores se descartan). Publique como **retained** para que el valor esté disponible tras un reinicio.
+- Un mensaje vacío (la forma de MQTT de borrar un mensaje retained) quita el topic y libera su lugar. Con los 8 lugares ocupados, un topic nuevo reemplaza al topic actualizado hace más tiempo que ninguna pantalla usa (graph, values o tiempo con la fuente Home Assistant); si todos están en uso, el topic nuevo se ignora.
 - `GET /api/stats` informa `data_mqtt_connected` y `data_mqtt_topics`.
 - Cambiar este bloque reinicia la aplicación, igual que el bloque `"mqtt"`.
 

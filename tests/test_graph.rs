@@ -378,3 +378,120 @@ fn render_preview_png() {
         big.save(format!("{}/graph_{}x{}.png", dir, w, h)).unwrap();
     }
 }
+
+// ---------------------------------------------------------------------------
+// Topic slots: clear + eviction (addendum 9)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn empty_payload_clears_topic_and_frees_slot() {
+    let store = DataFeedStore::new();
+    for i in 0..MAX_TOPICS {
+        store.publish(&format!("t/{}", i), "1");
+    }
+    assert_eq!(store.topic_count(), MAX_TOPICS);
+    let g0 = store.generation();
+    assert_eq!(store.publish("t/3", ""), PublishResult::Cleared);
+    assert!(store.get("t/3").is_none());
+    assert_eq!(store.topic_count(), MAX_TOPICS - 1);
+    assert!(store.generation() > g0, "readers must re-look-up");
+    // The freed slot takes a new topic even though nothing may be evicted.
+    assert_eq!(store.publish("new", "2"), PublishResult::Stored);
+    assert_eq!(store.topic_count(), MAX_TOPICS);
+    // Clearing an unknown topic is harmless.
+    assert_eq!(store.publish("never/seen", ""), PublishResult::Cleared);
+    assert_eq!(store.topic_count(), MAX_TOPICS);
+}
+
+#[test]
+fn eviction_picks_oldest_unreferenced_topic() {
+    let store = DataFeedStore::new();
+    for i in 0..MAX_TOPICS {
+        store.publish(&format!("t/{}", i), "1");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    // t/0 is the oldest but referenced; t/1 is the oldest unreferenced.
+    let used = |t: &str| t == "t/0";
+    assert_eq!(
+        store.publish_with("graph/new", "{}", used),
+        PublishResult::StoredEvicted
+    );
+    assert!(store.get("t/0").is_some());
+    assert!(store.get("t/1").is_none());
+    assert!(store.get("graph/new").is_some());
+    assert_eq!(store.topic_count(), MAX_TOPICS);
+    // A refreshed topic becomes "new": updating t/2 makes t/3 the next victim.
+    store.publish("t/2", "2");
+    assert_eq!(
+        store.publish_with("graph/new2", "{}", used),
+        PublishResult::StoredEvicted
+    );
+    assert!(store.get("t/2").is_some());
+    assert!(store.get("t/3").is_none());
+}
+
+#[test]
+fn referenced_topics_are_never_evicted() {
+    let store = DataFeedStore::new();
+    for i in 0..MAX_TOPICS {
+        store.publish(&format!("t/{}", i), "1");
+    }
+    let all_but_7 = |t: &str| t != "t/7";
+    assert_eq!(
+        store.publish_with("x", "1", all_but_7),
+        PublishResult::StoredEvicted
+    );
+    assert!(store.get("t/7").is_none());
+    for i in 0..7 {
+        assert!(store.get(&format!("t/{}", i)).is_some());
+    }
+}
+
+#[test]
+fn full_and_all_referenced_drops_new_topic() {
+    let store = DataFeedStore::new();
+    for i in 0..MAX_TOPICS {
+        store.publish(&format!("t/{}", i), "1");
+    }
+    let g0 = store.generation();
+    assert_eq!(store.publish_with("x", "1", |_| true), PublishResult::Full);
+    assert!(store.get("x").is_none());
+    assert_eq!(store.generation(), g0);
+    // Existing topics still update while full.
+    assert_eq!(
+        store.publish_with("t/5", "2", |_| true),
+        PublishResult::Stored
+    );
+}
+
+#[test]
+fn topic_reference_rules() {
+    use arcadematrix::core::config::{ConfigSettings, EngineInstance};
+    use arcadematrix::core::data_mqtt::topic_referenced;
+    let inst = |id: &str, engine: &str, kv: &[(&str, &str)]| EngineInstance {
+        instance_id: id.into(),
+        engine_id: engine.into(),
+        config: kv
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+    };
+    let mut s = ConfigSettings::default();
+    s.instances = vec![
+        inst("g", "graph", &[("topic", "a/graph")]),
+        inst("v", "values", &[("topic", "a/values")]),
+        inst("w_ha", "weather", &[("source", "ha"), ("topic", "a/wx")]),
+        inst(
+            "w_owm",
+            "weather",
+            &[("source", "owm"), ("topic", "a/wx_owm")],
+        ),
+        inst("c", "clock", &[("topic", "a/clock")]),
+    ];
+    assert!(topic_referenced(&s, "a/graph"));
+    assert!(topic_referenced(&s, "a/values"));
+    assert!(topic_referenced(&s, "a/wx"));
+    assert!(!topic_referenced(&s, "a/wx_owm"));
+    assert!(!topic_referenced(&s, "a/clock"));
+    assert!(!topic_referenced(&s, "test/9"));
+}

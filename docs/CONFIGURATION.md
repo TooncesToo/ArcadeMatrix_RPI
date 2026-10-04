@@ -119,6 +119,7 @@ A second MQTT connection, independent of the `"mqtt"` block above. It **never ta
 
 - The MQTT client id is `<hostname>-data`, so several signs can share one broker.
 - Up to 8 topics are kept, 8192 bytes per payload (larger payloads are dropped). Publish **retained** so the value is there right after a restart.
+- An empty payload (how MQTT deletes a retained message) removes the topic and frees its slot. When all 8 slots are full, a new topic replaces the least recently updated topic that no screen uses (graph, values, or weather with the Home Assistant source); if every stored topic is in use, the new topic is ignored.
 - `GET /api/stats` reports `data_mqtt_connected` and `data_mqtt_topics`.
 - Changing this block restarts the application, like the `"mqtt"` block.
 
