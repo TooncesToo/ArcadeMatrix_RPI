@@ -568,54 +568,30 @@ impl WeatherEngine {
                     canvas.text(desc, mid_x, y, size, color_desc);
                 }
             } else if is_wide && !is_tall {
-                // --- 128x32, as the ESP32 `drawForecast` (layout-v2.md B) ---
+                // --- 128x32: icon | day + condition | temps right-aligned (layout-v2.md B, addendum 6) ---
                 let (row1, row2) = (slide.temp_min.as_str(), slide.temp_max.as_str());
                 let icon_x = base_x as i32 + 4 + offset_x;
                 let icon_y = (mh as i32 - 24) / 2 + offset_y;
                 Self::draw_icon_scaled(&mut panorama, &slide.icon, icon_x, icon_y, 1);
 
-                let temp_x = icon_x + 28;
-                let max_len = if slide.is_now {
-                    row1.chars().count()
-                } else {
-                    row1.chars().count().max(row2.chars().count())
-                };
-                let text_w = max_len as i32 * 6;
+                let (y1, y2) = (4 + offset_y, 18 + offset_y);
+                let right_edge = base_x as i32 + mw as i32 - 4 + offset_x;
                 let mut canvas = SlideCanvas::new(&mut panorama, base_x as i32, mw as i32);
-                canvas.text(row1, temp_x, 4 + offset_y, 1, color_morning);
-                canvas.text(row2, temp_x, 18 + offset_y, 1, color_afternoon);
+                canvas.text(row1, right_edge - glcd_w(row1, 1), y1, 1, color_morning);
+                canvas.text(row2, right_edge - glcd_w(row2, 1), y2, 1, color_afternoon);
 
-                let slide_x = base_x as i32;
-                let mut right_x = temp_x + text_w + 6;
-                if right_x < slide_x + 60 + offset_x {
-                    right_x = slide_x + 60 + offset_x;
-                }
-                let max_right = slide_x + mw as i32 - 42;
-                if right_x > max_right {
-                    right_x = max_right;
-                }
-                canvas.text(&slide.label, right_x, 4 + offset_y, 1, color_label);
-
-                if !slide.condition.is_empty() {
-                    let avail_w = slide_x + mw as i32 - right_x - 2;
-                    let max_chars = (avail_w / 6).max(1) as usize;
-                    let n = slide.condition.chars().count();
-                    let prefix = |k: usize| -> &str {
-                        match slide.condition.char_indices().nth(k) {
-                            Some((i, _)) => &slide.condition[..i],
-                            None => slide.condition.as_str(),
-                        }
-                    };
-                    let desc = if n > max_chars {
-                        if max_chars > 3 {
-                            format!("{}.", prefix(max_chars - 1))
-                        } else {
-                            prefix(max_chars).to_string()
-                        }
-                    } else {
-                        slide.condition.clone()
-                    };
-                    canvas.text(&desc, right_x, 18 + offset_y, 1, color_desc);
+                let mid_x = icon_x + 24 + 4;
+                let temp_w = if slide.is_now {
+                    glcd_w(row1, 1)
+                } else {
+                    glcd_w(row1, 1).max(glcd_w(row2, 1))
+                };
+                let mid_w = right_edge - temp_w - 4 - mid_x;
+                let label = fit_long_short(&slide.label_long, &slide.label, mid_w);
+                canvas.text(&label, mid_x, y1, 1, color_label);
+                if !slide.is_now && !slide.condition.is_empty() {
+                    let desc = fit_long_short(&slide.condition_long, &slide.condition, mid_w);
+                    canvas.text(&desc, mid_x, y2, 1, color_desc);
                 }
             } else if is_tall && is_wide {
                 // --- 128x64 or larger Spacious Layout ---
@@ -971,6 +947,29 @@ fn glcd_w(text: &str, size: i32) -> i32 {
         0
     } else {
         n * 6 * size - size
+    }
+}
+
+/// The long text if it fits `width` at size 1, else the short one, else the
+/// short one truncated ("Partly cl." style; layout-v2.md B, 128x32).
+fn fit_long_short(long: &str, short: &str, width: i32) -> String {
+    if !long.is_empty() && glcd_w(long, 1) <= width {
+        return long.to_string();
+    }
+    if glcd_w(short, 1) <= width {
+        return short.to_string();
+    }
+    let max_chars = ((width + 1) / 6).max(1) as usize;
+    let prefix = |k: usize| -> &str {
+        match short.char_indices().nth(k) {
+            Some((i, _)) => &short[..i],
+            None => short,
+        }
+    };
+    if max_chars > 3 {
+        format!("{}.", prefix(max_chars - 1))
+    } else {
+        prefix(max_chars).to_string()
     }
 }
 
