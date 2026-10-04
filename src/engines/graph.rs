@@ -15,7 +15,7 @@ use crate::core::engine_contract::{
 use crate::core::i18n::{self, Lang};
 use crate::core::matrix::MatrixBackend;
 use crate::engines::dashboard::font::{draw_text_scaled, measure_text};
-use crate::engines::renderers::tiny_font::{draw_tiny_text, tiny_text_width, TINY_H};
+use crate::engines::renderers::tiny_font::{draw_tiny_text, tiny_text_width, TINY_ADVANCE, TINY_H};
 use linkme::distributed_slice;
 use std::sync::Arc;
 
@@ -161,8 +161,15 @@ pub fn render_graph_with(
         return;
     };
 
-    let lay = layout_for(h, show_header);
+    let mut lay = layout_for(h, show_header);
     let bottom = h; // exclusive
+                    // Legend row (64 px tall panels only): tiny font under the header, plot shrinks.
+    let legend_y = lay.graph_top;
+    let show_legend = h >= 64 && !g.legend.is_empty();
+    if show_legend {
+        lay.graph_top += TINY_H + 2;
+        lay.graph_height = (h - lay.graph_top).max(0);
+    }
     let gh = lay.graph_height;
 
     // Header: title left, summary right-aligned in the first series' colour.
@@ -198,7 +205,10 @@ pub fn render_graph_with(
             TITLE_COLOR,
         );
         if summary_w > 0 {
-            let color = g.series.first().map(|s| s.color).unwrap_or(TITLE_COLOR);
+            let color = g
+                .summary_color
+                .or_else(|| g.series.first().map(|s| s.color))
+                .unwrap_or(TITLE_COLOR);
             draw_text_scaled(
                 matrix,
                 &g.summary,
@@ -251,6 +261,19 @@ pub fn render_graph_with(
             AXIS_COLOR,
         );
         px0 = lw + 1;
+    }
+    if show_legend {
+        // Items left to right from the plot's left edge, 8 px apart; the first
+        // that would pass the right edge is dropped with everything after it.
+        let mut x = px0;
+        for item in &g.legend {
+            let tw = tiny_text_width(&item.text);
+            if x + tw > w {
+                break;
+            }
+            draw_tiny_text(matrix, &item.text, x, legend_y, 0, w, item.color);
+            x += tw + 2 * TINY_ADVANCE;
+        }
     }
     let pw = w - px0;
     if pw <= 0 {

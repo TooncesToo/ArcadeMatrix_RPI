@@ -411,6 +411,8 @@ Formato del mensaje (v1):
 | `min` | Base de la escala (por defecto `0`). `max` ausente o `<= min` = tope automático. Con alguna serie de línea, la escala automática cubre los datos más un 5 % (mínimo 0,5) a cada lado. |
 | `style` (por serie) | `"bar"` (por defecto) o `"line"`. Las barras parten de la línea cero (negativos hacia abajo). Las líneas (1 px, escalonadas) se dibujan encima; `null` = hueco. |
 | `yaxis` | `true`: mínimo y máximo a la izquierda en fuente 3x5 (solo paneles de 64 px de alto). |
+| `summary_color` | `"#RRGGBB"` opcional para el resumen del encabezado (por defecto: el color de la primera serie). |
+| `legend` | Opcional, hasta 4 elementos `{"text","color"}` en fuente 3x5 bajo el encabezado, solo en paneles de al menos 64 px de alto. Los que no caben se quitan desde el final. |
 | colores | `"#RRGGBB"`. |
 
 Ejemplo de Home Assistant (acción de automatización que publica un mensaje retained cada 15 minutos):

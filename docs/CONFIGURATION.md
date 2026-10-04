@@ -427,6 +427,8 @@ Payload (v1):
 | `min` | Bottom of the y scale (default `0`). With `max` absent or `<= min` the top is automatic. With any line series the automatic range is the data range padded by 5 % (at least 0.5) each side. |
 | `style` (per series) | `"bar"` (default) or `"line"`. Bars grow from the zero line (negatives go down). Lines are 1 px steps drawn on top; `null` leaves a gap. |
 | `yaxis` | `true`: min and max printed at the left edge in a 3x5 font (64 px tall panels only). |
+| `summary_color` | Optional `"#RRGGBB"` for the header summary (default: the first series' colour). |
+| `legend` | Optional, up to 4 `{"text","color"}` items drawn in a 3x5 font under the header, only on panels at least 64 px tall. Items that don't fit are dropped from the end. |
 | colors | `"#RRGGBB"`. |
 
 Home Assistant example (an automation action publishing a retained payload every 15 minutes):
