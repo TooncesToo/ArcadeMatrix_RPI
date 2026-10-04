@@ -524,7 +524,12 @@ pub struct FeedEntry {
 #[derive(Debug, PartialEq, Eq)]
 pub enum PublishResult {
     Stored,
+    /// Stored after evicting the oldest topic no screen references.
+    StoredEvicted,
+    /// Empty payload: the topic was removed and its slot freed.
+    Cleared,
     TooLarge,
+    /// All slots hold topics that screens use: the new topic was dropped.
     Full,
 }
 
@@ -551,9 +556,26 @@ impl DataFeedStore {
         }
     }
 
+    /// Stores `payload` as the latest value for `topic`, never evicting
+    /// anything (every stored topic counts as referenced).
+    pub fn publish(&self, topic: &str, payload: &str) -> PublishResult {
+        self.publish_with(topic, payload, |_| true)
+    }
+
     /// Stores `payload` as the latest value for `topic`. Called from the MQTT
     /// client thread only (single writer).
-    pub fn publish(&self, topic: &str, payload: &str) -> PublishResult {
+    ///
+    /// - An empty payload (MQTT's way to delete a retained message) removes the
+    ///   topic and frees its slot; screens on it go back to "no data".
+    /// - A new topic with every slot taken evicts the topic with the oldest
+    ///   update that `is_referenced` says no screen uses. If every stored topic
+    ///   is referenced, the new message is dropped (`Full`).
+    pub fn publish_with(
+        &self,
+        topic: &str,
+        payload: &str,
+        is_referenced: impl Fn(&str) -> bool,
+    ) -> PublishResult {
         if payload.len() > MAX_PAYLOAD_BYTES {
             return PublishResult::TooLarge;
         }
@@ -569,9 +591,36 @@ impl DataFeedStore {
                 _ => {}
             }
         }
+
+        if payload.is_empty() {
+            if let Some(idx) = target {
+                self.slots[idx].store(None);
+                self.topic_count.fetch_sub(1, Ordering::Relaxed);
+                self.generation.fetch_add(1, Ordering::Release);
+            }
+            return PublishResult::Cleared;
+        }
+
         let is_new = target.is_none();
-        let Some(idx) = target.or(first_free) else {
-            return PublishResult::Full;
+        let mut evicted = false;
+        let idx = match target.or(first_free) {
+            Some(i) => i,
+            None => {
+                // Full: evict the oldest topic no screen references.
+                let victim = self
+                    .slots
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, slot)| slot.load_full().map(|e| (i, e)))
+                    .filter(|(_, e)| !is_referenced(&e.topic))
+                    .min_by_key(|(_, e)| e.received)
+                    .map(|(i, _)| i);
+                let Some(i) = victim else {
+                    return PublishResult::Full;
+                };
+                evicted = true;
+                i
+            }
         };
         // Parse once here, by shape, so engines never touch JSON.
         let root: Option<Value> = serde_json::from_str(payload).ok();
@@ -584,11 +633,15 @@ impl DataFeedStore {
             received: Instant::now(),
         };
         self.slots[idx].store(Some(Arc::new(entry)));
-        if is_new {
+        if is_new && !evicted {
             self.topic_count.fetch_add(1, Ordering::Relaxed);
         }
         self.generation.fetch_add(1, Ordering::Release);
-        PublishResult::Stored
+        if evicted {
+            PublishResult::StoredEvicted
+        } else {
+            PublishResult::Stored
+        }
     }
 
     /// Latest entry for `topic`, if any. Lock-free and allocation-free.

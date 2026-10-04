@@ -6,7 +6,7 @@
 //! topic under `<topic_prefix>/#` in the [`data_feed`] store, where engines
 //! such as `graph` pick it up.
 
-use crate::core::config::{Config, DataMqttConfig};
+use crate::core::config::{Config, ConfigSettings, DataMqttConfig};
 use crate::core::data_feed::{data_feed, PublishResult, MAX_PAYLOAD_BYTES};
 use rumqttc::{Client, Event, MqttOptions, Packet, QoS};
 use std::sync::Arc;
@@ -39,6 +39,28 @@ pub fn subscription_filter(prefix: &str) -> String {
     }
 }
 
+/// Whether a screen on this sign uses `topic`: a graph or values instance, or
+/// a weather instance with the Home Assistant source. Such topics are never
+/// evicted from the data feed store.
+pub fn topic_referenced(settings: &ConfigSettings, topic: &str) -> bool {
+    settings.instances.iter().any(|inst| {
+        let uses = match inst.engine_id.as_str() {
+            "graph" | "values" => true,
+            "weather" => inst
+                .config
+                .get("source")
+                .map(|s| s == "ha")
+                .unwrap_or(false),
+            _ => false,
+        };
+        uses && inst
+            .config
+            .get("topic")
+            .map(|t| t.trim() == topic)
+            .unwrap_or(false)
+    })
+}
+
 /// Whether the configuration asks for a running client.
 pub fn is_active(cfg: &DataMqttConfig) -> bool {
     cfg.enabled && !cfg.broker.trim().is_empty()
@@ -61,13 +83,13 @@ pub fn start_data_mqtt_client(config: Arc<Config>) {
 
     let spawned = std::thread::Builder::new()
         .name("data-mqtt".to_string())
-        .spawn(move || run_client(cfg, client_id));
+        .spawn(move || run_client(cfg, client_id, config));
     if let Err(e) = spawned {
         warn!("Data MQTT: failed to start client thread: {}", e);
     }
 }
 
-fn run_client(cfg: DataMqttConfig, client_id: String) {
+fn run_client(cfg: DataMqttConfig, client_id: String, config: Arc<Config>) {
     let filter = subscription_filter(&cfg.topic_prefix);
     let mut options = MqttOptions::new(client_id.clone(), cfg.broker.trim(), cfg.port);
     options.set_keep_alive(Duration::from_secs(60));
@@ -84,7 +106,7 @@ fn run_client(cfg: DataMqttConfig, client_id: String) {
     let (client, mut connection) = Client::new(options, 10);
     let mut backoff = BACKOFF_MIN_SECS;
     let mut warned_too_large = false;
-    let mut warned_full = false;
+    let mut warned_full: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for notification in connection.iter() {
         match notification {
@@ -102,8 +124,17 @@ fn run_client(cfg: DataMqttConfig, client_id: String) {
                 let Ok(payload) = std::str::from_utf8(&publish.payload) else {
                     continue;
                 };
-                match data_feed().publish(&publish.topic, payload) {
-                    PublishResult::Stored => {}
+                let result = data_feed().publish_with(&publish.topic, payload, |t| {
+                    topic_referenced(&config.settings.read(), t)
+                });
+                match result {
+                    PublishResult::Stored | PublishResult::Cleared => {}
+                    PublishResult::StoredEvicted => {
+                        info!(
+                            "Data MQTT: store full, evicted the oldest unused topic for '{}'",
+                            publish.topic
+                        );
+                    }
                     PublishResult::TooLarge if !warned_too_large => {
                         warned_too_large = true;
                         warn!(
@@ -113,12 +144,14 @@ fn run_client(cfg: DataMqttConfig, client_id: String) {
                             MAX_PAYLOAD_BYTES
                         );
                     }
-                    PublishResult::Full if !warned_full => {
-                        warned_full = true;
-                        warn!(
-                            "Data MQTT: topic limit reached, ignoring '{}'",
-                            publish.topic
-                        );
+                    PublishResult::Full => {
+                        if warned_full.insert(publish.topic.clone()) {
+                            warn!(
+                                "Data MQTT: all {} slots hold topics screens use, ignoring '{}'",
+                                crate::core::data_feed::MAX_TOPICS,
+                                publish.topic
+                            );
+                        }
                     }
                     _ => {}
                 }
