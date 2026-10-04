@@ -137,6 +137,74 @@ fn ninety_six_bands_render_and_extra_bands_keep_newest() {
     assert_eq!(g.bands.last().unwrap().from, 99);
 }
 
+const LEGEND_CASE: &str = r##"{"title":"DOWNSTAIRS COOL","summary":"76°","summary_color":"#40A0FF",
+  "min":68,"max":90,"yaxis":true,
+  "series":[{"style":"line","color":"#2060FF","data":[90,90]}],
+  "legend":[{"text":"INSIDE","color":"#40A0FF"},{"text":"OUTSIDE","color":"#FF4020"},
+            {"text":"COOLING","color":"#5080C0"}]}"##;
+
+#[test]
+fn legend_row_and_summary_colour_on_tall_panels() {
+    let g = parse_graph_payload(LEGEND_CASE).unwrap();
+    assert_eq!(g.legend.len(), 3);
+    assert_eq!(g.summary_color, Some((0x40, 0xA0, 0xFF)));
+    let mut m = MockMatrix::new(256, 64);
+    render_graph(&mut m, Some(&g), true, "");
+    // px0 = 8 (labels "90"/"68"): INSIDE x 8..30, OUTSIDE 39..65, COOLING 74..100, rows 15..19.
+    let (x0, y0, x1, y1) = bbox(&m, (0x40, 0xA0, 0xFF))
+        .map(|_| {
+            let xs: Vec<u32> = (0..256)
+                .filter(|&x| (15..20).any(|y| px(&m, x, y) == (0x40, 0xA0, 0xFF)))
+                .collect();
+            let ys: Vec<u32> = (0..64)
+                .filter(|&y| (0..40).any(|x| px(&m, x, y) == (0x40, 0xA0, 0xFF)))
+                .collect();
+            (xs[0], ys[0], *xs.last().unwrap(), *ys.last().unwrap())
+        })
+        .unwrap();
+    assert_eq!((x0, x1, y0, y1), (8, 30, 15, 19));
+    assert!(lit_in(&m, 39..66, 15..20, (0xFF, 0x40, 0x20)));
+    assert!(lit_in(&m, 74..101, 15..20, (0x50, 0x80, 0xC0)));
+    // Summary uses summary_color (on the header rows, right side).
+    assert!(lit_in(&m, 200..256, 0..14, (0x40, 0xA0, 0xFF)));
+    // Plot starts at row 22: the value-90 line sits on row 22, max axis label on rows 22..26.
+    assert_eq!(px(&m, 8, 22), (0x20, 0x60, 0xFF));
+    assert!(lit_in(&m, 0..7, 22..27, (0x70, 0x70, 0x70)));
+    assert!(!lit_in(&m, 8..256, 20..22, (0x20, 0x60, 0xFF)));
+}
+
+#[test]
+fn legend_ignored_on_32px_panels() {
+    let with = parse_graph_payload(LEGEND_CASE).unwrap();
+    let mut without = with.clone();
+    without.legend.clear();
+    let (mut a, mut b) = (MockMatrix::new(128, 32), MockMatrix::new(128, 32));
+    render_graph(&mut a, Some(&with), true, "");
+    render_graph(&mut b, Some(&without), true, "");
+    assert_eq!(a.canvas, b.canvas);
+}
+
+#[test]
+fn too_wide_legend_drops_items_from_the_end() {
+    let g = parse_graph_payload(
+        r##"{"series":[{"data":[]}],"legend":[
+          {"text":"AAAAAAAAAAAAAAAAAAAA","color":"#FF0000"},
+          {"text":"BBBBBBBBBBBBBBBBBBBB","color":"#00FF00"},
+          {"text":"CCCCCCCCCCCCCCCCCCCC","color":"#0000FF"},
+          {"text":"DD","color":"#FFFF00"},
+          {"text":"IGNORED","color":"#FFFFFF"}]}"##,
+    )
+    .unwrap();
+    assert_eq!(g.legend.len(), 4); // 5th item not read
+    let mut m = MockMatrix::new(256, 64);
+    render_graph(&mut m, Some(&g), false, "");
+    // 79 px each + 8 gap: A 0..78, B 87..165, C would end at 252 (fits), D at 261 (dropped).
+    assert!(lit_in(&m, 0..79, 0..5, (255, 0, 0)));
+    assert!(lit_in(&m, 87..166, 0..5, (0, 255, 0)));
+    assert!(lit_in(&m, 174..253, 0..5, (0, 0, 255)));
+    assert!(!lit_in(&m, 0..256, 0..64, (255, 255, 0)));
+}
+
 #[test]
 fn null_is_gap_for_lines_and_zero_for_bars() {
     let g = parse_graph_payload(
@@ -748,7 +816,29 @@ fn render_v2_previews() {
         t10.join(","),
         out.join(",")
     );
+    let legend4 = r##"{"title":"ENERGY","summary":"3.1kW","summary_color":"#FFB000","yaxis":true,
+      "series":[{"color":"#2080FF","data":[1,2,3,2,1,2,3,4]},{"color":"#00D0A0","data":[1,1,1,1,1,1,1,1]}],
+      "legend":[{"text":"UP","color":"#2080FF"},{"text":"DOWN","color":"#00D0A0"},
+                {"text":"SOLAR","color":"#FFB000"},{"text":"GRID","color":"#FF4040"}]}"##
+        .to_string();
+    let legend_wide = r##"{"title":"WIDE","series":[{"style":"line","color":"#FF4020","data":[1,3,2,4]}],
+      "legend":[{"text":"OUTSIDE TEMPERATURE","color":"#FF4020"},{"text":"INSIDE TEMPERATURE","color":"#40A0FF"},
+                {"text":"COOLING SETPOINT","color":"#5080C0"},{"text":"DROPPED","color":"#FFFFFF"}]}"##
+        .to_string();
+    let legend_dn = {
+        let mut v: serde_json::Value = serde_json::from_str(&cool).unwrap();
+        v["summary_color"] = "#40A0FF".into();
+        v["legend"] = serde_json::json!([
+            {"text": "INSIDE", "color": "#40A0FF"},
+            {"text": "OUTSIDE", "color": "#FF4020"},
+            {"text": "COOLING", "color": "#5080C0"}
+        ]);
+        v.to_string()
+    };
     let graphs = [
+        ("graph_legend_cool_dn", legend_dn),
+        ("graph_legend_4items", legend4),
+        ("graph_legend_too_wide", legend_wide),
         ("graph_cool_lines", cool),
         ("graph_neg_bars_mixed", mixed),
         ("graph_title_full_short", title_case),

@@ -58,6 +58,16 @@ pub struct GraphBand {
     pub color: (u8, u8, u8),
 }
 
+/// One legend entry (drawn only on 64 px tall panels).
+#[derive(Debug, Clone, PartialEq)]
+pub struct GraphLegendItem {
+    pub text: String,
+    pub color: (u8, u8, u8),
+}
+
+/// Maximum number of legend items read from a graph payload.
+pub const MAX_LEGEND: usize = 4;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct GraphMark {
     pub at: usize,
@@ -72,6 +82,10 @@ pub struct GraphData {
     /// Optional abbreviation, used only when `title` doesn't fit the header.
     pub title_short: String,
     pub summary: String,
+    /// Optional colour of the header summary (else the first series' colour).
+    pub summary_color: Option<(u8, u8, u8)>,
+    /// Optional legend row (64 px tall panels only).
+    pub legend: Vec<GraphLegendItem>,
     pub unit: String,
     /// Number of x positions; data is right-aligned into these.
     pub slots: usize,
@@ -262,6 +276,27 @@ fn parse_graph_value(root: &Value) -> Option<GraphData> {
         title: short_text(root.get("title")),
         title_short: short_text(root.get("title_short")),
         summary: short_text(root.get("summary")),
+        summary_color: root
+            .get("summary_color")
+            .and_then(|c| c.as_str())
+            .and_then(parse_hex_color),
+        legend: root
+            .get("legend")
+            .and_then(|l| l.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .take(MAX_LEGEND)
+                    .filter_map(|it| {
+                        let text = short_text(it.get("text"));
+                        let color = it
+                            .get("color")
+                            .and_then(|c| c.as_str())
+                            .and_then(parse_hex_color)?;
+                        (!text.is_empty()).then_some(GraphLegendItem { text, color })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
         unit: short_text(root.get("unit")),
         slots,
         min,
