@@ -284,6 +284,8 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 | `offset_x` | `int` | `0` | `-64` to `64` | Horizontal pixel shift. |
 | `offset_y` | `int` | `0` | `-32` to `32` | Vertical pixel shift. |
 
+On 128x32 and 256x64 panels the weather pages use the same layout as the ESP32 firmware: icon, then the day and condition (the long forms when they fit), then the temperatures right-aligned. In °F the high is shown above the low (US convention).
+
 #### How to Format the `city` Field on OpenWeatherMap
 OpenWeatherMap uses the ISO 3166 country code (and 2-letter state code for the US) to disambiguate locations:
 * **International Locations:** Use `City,CountryCode` (e.g. `Paris,FR`, `London,GB`, `Tokyo,JP`, `Montreal,CA`).
