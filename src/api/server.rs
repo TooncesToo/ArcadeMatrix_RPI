@@ -59,6 +59,7 @@ async fn get_system(req: HttpRequest, data: web::Data<AppState>) -> impl Respond
         "system": s.system,
         "matrix": s.matrix,
         "mqtt": s.mqtt,
+        "data_mqtt": s.data_mqtt,
         "wifi": s.wifi,
         "api_auth_enabled": s.api_auth_enabled,
         "api_token": s.api_token
@@ -93,6 +94,13 @@ async fn post_system(
     if let Some(mq) = body.get("mqtt") {
         if let Ok(mq_val) = serde_json::from_value(mq.clone()) {
             s.mqtt = mq_val;
+        }
+    }
+    // Data MQTT credentials: read by the MQTT Data engine on its next
+    // activation, so no restart is needed.
+    if let Some(dm) = body.get("data_mqtt") {
+        if let Ok(dm_val) = serde_json::from_value(dm.clone()) {
+            s.data_mqtt = dm_val;
         }
     }
     if let Some(wf) = body.get("wifi") {

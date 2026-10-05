@@ -15,6 +15,7 @@ Le système de configuration repose exclusivement sur un unique fichier `config.
   "matrix": { ... },
   "wifi": { ... },
   "mqtt": { ... },
+  "data_mqtt": { ... },
   "system": { ... },
   "instances": [ ... ],
   "rotation": [ ... ],
@@ -102,6 +103,19 @@ Le démon de synchronisation peut être installé sur la console (Recalbox, Bato
 > Pour Batocera, la version **v33 ou supérieure** est requise pour le changement dynamique de marquee pendant la navigation (hooks `game-selected` et `system-selected`). Batocera v32 et versions antérieures ne déclenchent que les événements de lancement/arrêt de jeu. Recalbox est supporté sur toutes ses versions.
 
 ---
+
+## 5b. Le bloc `"data_mqtt"` (broker MQTT Data)
+
+Identifiants du broker pour le moteur `mqttdata`. Cette connexion est distincte du bloc `"mqtt"` ci-dessus (marquees / contrôle, qui peut prendre la main sur l'affichage). Rien ne tourne en arrière-plan : le moteur ne se connecte que pendant que son écran est affiché et se déconnecte quand il quitte la rotation.
+
+| Clé | Type | Description |
+| :--- | :--- | :--- |
+| `broker` | `String` | Hôte ou IP du broker. |
+| `port` | `int` | Port du broker (défaut `1883`). |
+| `user` | `String` | Utilisateur (optionnel). |
+| `pass` | `String` | Mot de passe (optionnel). |
+
+L'identifiant client MQTT est `<hostname>-data`. Les changements s'appliquent à la prochaine activation du moteur (sans redémarrage).
 
 ## 6. Sécurité de l'API (`api_auth_enabled` / `api_token`)
 
@@ -351,6 +365,13 @@ OpenWeatherMap utilise le code pays ISO 3166 (et le code d'état à 2 lettres po
 | Champ | Type | Défaut | Description |
 | :--- | :--- | :--- | :--- |
 | *(auto)* | `None` | — | Moteur interne de synchronisation des marquees Pixelcade / Recalbox / Batocera reçus via MQTT ou Webhook. |
+
+### Moteur : `mqttdata` (MQTT Data)
+| Champ | Type | Défaut | Description |
+| :--- | :--- | :--- | :--- |
+| `topics` | `String` | `""` | Jusqu'à 6 topics MQTT complets, séparés par des virgules. Chaque topic est une page. |
+
+Tout le reste vient de chaque message retained : son `type` (`value`, `table`, `graph`, `weather`), sa durée d'affichage (`seconds`) et son contenu. L'écran reste affiché le temps d'un cycle complet de ses pages. Formats, limites et messages : [MQTT_DATA_CONTRACT_FR.md](MQTT_DATA_CONTRACT_FR.md) ; blueprints Home Assistant : [HOME_ASSISTANT_FR.md](HOME_ASSISTANT_FR.md).
 
 ---
 

@@ -11,6 +11,7 @@ pub mod google_cast;
 pub mod icons;
 pub mod marquee;
 pub mod message;
+pub mod mqtt_data;
 pub mod renderers;
 pub mod spotify;
 pub mod stock;
