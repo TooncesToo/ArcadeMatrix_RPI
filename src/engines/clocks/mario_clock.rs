@@ -48,6 +48,10 @@ pub struct MarioClock {
     shown: [String; 2],
     last_minute: u32,
     last_frame: Instant,
+    /// Set when the face comes back on screen: the next frame shows the
+    /// current time straight away instead of keeping the digits from the
+    /// last time it was visible (same as the ESP32 `onActivated()`).
+    snap: bool,
 }
 
 impl MarioClock {
@@ -62,7 +66,25 @@ impl MarioClock {
             shown: [String::from("--"), String::from("--")],
             last_minute: 99,
             last_frame: Instant::now(),
+            snap: false,
         }
+    }
+
+    /// Called when the clock becomes active again (rotation, end of a
+    /// preemption). Mario only runs for minutes that change while the face is
+    /// on screen; time that passed while it was hidden is shown at once.
+    pub fn on_activated(&mut self) {
+        self.snap = true;
+    }
+
+    /// The hour and minute digits currently drawn on the blocks.
+    pub fn shown_digits(&self) -> (&str, &str) {
+        (&self.shown[0], &self.shown[1])
+    }
+
+    /// Whether Mario is on his way to (or back from) a block.
+    pub fn is_running(&self) -> bool {
+        self.phase != Phase::Waiting
     }
 
     fn blit(
@@ -160,6 +182,17 @@ impl MarioClock {
         let mm = format!("{:02}", minutes);
         if self.shown[0] == "--" {
             self.shown = [hh.clone(), mm.clone()];
+        }
+        if self.snap {
+            // Back on screen: show the current time now, no run-in for it.
+            self.snap = false;
+            self.shown = [hh.clone(), mm.clone()];
+            self.last_minute = minutes;
+            self.phase = Phase::Waiting;
+            self.pending_digits = false;
+            self.block_bounce = [0.0, 0.0];
+            self.runner_x = -(MARIO_JUMP_W as f32);
+            self.jump_t = 0.0;
         }
 
         if minutes != self.last_minute {
@@ -280,5 +313,76 @@ impl MarioClock {
 impl Default for MarioClock {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::matrix::MockMatrix;
+    use crate::engines::renderers::BaseRenderer;
+
+    #[test]
+    fn returning_face_shows_current_time_without_run_in() {
+        let base = BaseRenderer::new();
+        let font = base.font();
+        let mut m = MockMatrix::new(256, 64);
+        let mut mario = MarioClock::new();
+
+        // Shown at 7:46 (the engine always activates before the first frame).
+        mario.on_activated();
+        mario.render(&mut m, 7, 46, &font, 1);
+        assert_eq!(mario.shown_digits(), ("7", "46"));
+        assert!(!mario.is_running());
+
+        // Off screen for ten minutes, then back: the first frame shows 7:56.
+        mario.on_activated();
+        mario.render(&mut m, 7, 56, &font, 1);
+        assert_eq!(mario.shown_digits(), ("7", "56"));
+        assert!(
+            !mario.is_running(),
+            "no run-in for time that passed off screen"
+        );
+
+        // A minute that changes while on screen still gets Mario's run.
+        mario.render(&mut m, 7, 57, &font, 1);
+        assert!(mario.is_running());
+        assert_eq!(
+            mario.shown_digits(),
+            ("7", "56"),
+            "until he strikes the block"
+        );
+    }
+
+    #[test]
+    fn snap_also_cancels_a_run_in_progress() {
+        let base = BaseRenderer::new();
+        let font = base.font();
+        let mut m = MockMatrix::new(256, 64);
+        let mut mario = MarioClock::new();
+        mario.on_activated();
+        mario.render(&mut m, 7, 46, &font, 1);
+        mario.render(&mut m, 7, 47, &font, 1); // run starts
+        assert!(mario.is_running());
+        mario.on_activated(); // hidden mid-run, back at 8:00
+        mario.render(&mut m, 8, 0, &font, 1);
+        assert_eq!(mario.shown_digits(), ("8", "00"));
+        assert!(!mario.is_running());
+    }
+
+    #[test]
+    fn snap_waits_for_a_wide_panel() {
+        // On 128x32 the face only draws a notice; the snap is kept until it
+        // is drawn on a panel wide enough.
+        let base = BaseRenderer::new();
+        let font = base.font();
+        let mut mario = MarioClock::new();
+        mario.render(&mut MockMatrix::new(256, 64), 7, 46, &font, 1);
+        mario.on_activated();
+        mario.render(&mut MockMatrix::new(128, 32), 7, 56, &font, 1);
+        assert_eq!(mario.shown_digits(), ("7", "46"));
+        mario.render(&mut MockMatrix::new(256, 64), 7, 56, &font, 1);
+        assert_eq!(mario.shown_digits(), ("7", "56"));
+        assert!(!mario.is_running());
     }
 }
