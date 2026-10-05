@@ -316,7 +316,12 @@ impl Engine for ClockEngine {
         Ok(())
     }
 
-    fn activate(&mut self) {}
+    fn activate(&mut self) {
+        // Rotation and the end of a preemption (resume() defaults to activate())
+        // both come through here: faces with their own state show the current
+        // time at once instead of what they last showed.
+        self.mario.on_activated();
+    }
     fn deactivate(&mut self) {}
     fn update(&mut self, _context: &mut EngineContext) {}
 
