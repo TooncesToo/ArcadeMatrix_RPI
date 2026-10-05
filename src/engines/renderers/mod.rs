@@ -3,7 +3,9 @@ pub mod cyberpunk_renderer;
 pub mod flip_renderer;
 pub mod primitives;
 pub mod sparkline;
+
 pub mod true_matrix_renderer;
+pub mod weather_page;
 
 pub use base_renderer::BaseRenderer;
 pub use cyberpunk_renderer::CyberpunkRenderer;

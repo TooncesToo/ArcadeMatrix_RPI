@@ -191,12 +191,25 @@ impl OpenWeatherMapProvider {
                             .unwrap_or("");
                         let cond = translate_condition(raw_main, raw_desc, lang);
 
+                        let wday = (current_wday as usize + day_idx) % 7;
                         DayForecast {
                             label: labels[day_idx].to_string(),
+                            label_long: i18n::weather_day_label_long(
+                                Lang::from_code(lang),
+                                wday,
+                                day_idx == 0,
+                                day_idx == 1,
+                            )
+                            .to_string(),
                             temp: format!("{:.0}{}", entry.main.temp, unit_sym),
                             temp_min: format!("{:.0}{}", day_min, unit_sym),
                             temp_max: format!("{:.0}{}", day_max, unit_sym),
                             condition: cond,
+                            condition_long: i18n::weather_condition_long(
+                                Lang::from_code(lang),
+                                &format!("{} {}", raw_main, raw_desc),
+                            )
+                            .to_string(),
                             icon: entry
                                 .weather
                                 .get(0)

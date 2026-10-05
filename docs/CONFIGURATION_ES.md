@@ -268,6 +268,8 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 | `offset_x` | `int` | `0` | `-64` a `64` | Desplazamiento horizontal de píxeles. |
 | `offset_y` | `int` | `0` | `-32` a `32` | Desplazamiento vertical de píxeles. |
 
+En paneles de 128x32 y 256x64 las páginas del tiempo usan el mismo diseño que el firmware ESP32: icono, luego día y condición (formas largas si caben) y luego temperaturas alineadas a la derecha. En °F la máxima se muestra encima de la mínima (convención estadounidense).
+
 #### Cómo formatear el campo `city` en OpenWeatherMap
 OpenWeatherMap utiliza el código de país ISO 3166 (y el código de estado de 2 letras para EE. UU.):
 * **Ubicaciones Internacionales:** Use `Ciudad,CodigoPais` (ej. `Paris,FR`, `London,GB`, `Tokyo,JP`, `Montreal,CA`).
