@@ -167,6 +167,8 @@ paths:
                     $ref: '#/components/schemas/MatrixConfig'
                   mqtt:
                     $ref: '#/components/schemas/MqttConfig'
+                  data_mqtt:
+                    $ref: '#/components/schemas/DataMqttConfig'
                   wifi:
                     $ref: '#/components/schemas/WifiConfig'
                   api_auth_enabled:
@@ -196,6 +198,8 @@ paths:
                   $ref: '#/components/schemas/MatrixConfig'
                 mqtt:
                   $ref: '#/components/schemas/MqttConfig'
+                data_mqtt:
+                  $ref: '#/components/schemas/DataMqttConfig'
                 wifi:
                   $ref: '#/components/schemas/WifiConfig'
                 api_auth_enabled:
@@ -1519,3 +1523,16 @@ components:
           type: string
         allow_overlay:
           type: boolean
+    DataMqttConfig:
+      type: object
+      description: Broker credentials for the mqttdata engine (it connects only while its screen is active).
+      properties:
+        broker:
+          type: string
+        port:
+          type: integer
+          default: 1883
+        user:
+          type: string
+        pass:
+          type: string

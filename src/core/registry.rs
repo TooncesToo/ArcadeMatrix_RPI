@@ -48,6 +48,7 @@ impl EngineRegistry {
             "google_cast" | "cast" => 12,
             "dashboard" => 13,
             "fighter" => 14,
+            "mqttdata" => 16,
             _ => 0,
         }
     }
@@ -69,6 +70,7 @@ impl EngineRegistry {
             13 => Some("dashboard"),
             14 => Some("fighter"),
             15 => Some("gnews"),
+            16 => Some("mqttdata"),
             _ => None,
         }
     }

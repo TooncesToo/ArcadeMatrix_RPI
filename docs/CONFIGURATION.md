@@ -15,6 +15,7 @@ The configuration system relies exclusively on a single `config.json` file locat
   "matrix": { ... },
   "wifi": { ... },
   "mqtt": { ... },
+  "data_mqtt": { ... },
   "system": { ... },
   "instances": [ ... ],
   "rotation": [ ... ],
@@ -102,6 +103,19 @@ The sync daemon can be installed on the console (Recalbox, Batocera, RetroPie) o
 > For Batocera, version **v33 or newer** is required for dynamic marquee browsing (`game-selected` and `system-selected` hooks). Batocera v32 and earlier only trigger game launch/stop events. Recalbox is supported on all versions.
 
 ---
+
+## 5b. The `"data_mqtt"` Block (MQTT Data broker)
+
+Broker credentials for the `mqttdata` engine. This connection is separate from the `"mqtt"` block above (marquees / control, which can take over the display). Nothing runs in the background: the engine connects only while its screen is active and disconnects when it leaves the rotation.
+
+| Key | Type | Description |
+| :--- | :--- | :--- |
+| `broker` | `String` | Broker host or IP. |
+| `port` | `int` | Broker port (default `1883`). |
+| `user` | `String` | Username (optional). |
+| `pass` | `String` | Password (optional). |
+
+The MQTT client id is `<hostname>-data`. Changes apply on the engine's next activation (no restart).
 
 ## 6. API Security (`api_auth_enabled` / `api_token`)
 
@@ -284,6 +298,8 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 | `offset_x` | `int` | `0` | `-64` to `64` | Horizontal pixel shift. |
 | `offset_y` | `int` | `0` | `-32` to `32` | Vertical pixel shift. |
 
+On 128x32 and 256x64 panels the weather pages use the same layout as the ESP32 firmware: icon, then the day and condition (the long forms when they fit), then the temperatures right-aligned. In °F the high is shown above the low (US convention).
+
 #### How to Format the `city` Field on OpenWeatherMap
 OpenWeatherMap uses the ISO 3166 country code (and 2-letter state code for the US) to disambiguate locations:
 * **International Locations:** Use `City,CountryCode` (e.g. `Paris,FR`, `London,GB`, `Tokyo,JP`, `Montreal,CA`).
@@ -367,6 +383,13 @@ OpenWeatherMap uses the ISO 3166 country code (and 2-letter state code for the U
 | Field | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | *(auto)* | `None` | — | Internal Pixelcade/Recalbox/Batocera marquee sync engine. Displays scraped game box-art and marquees received via MQTT / Webhook. |
+
+### Engine: `mqttdata` (MQTT Data)
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `topics` | `String` | `""` | Up to 6 full MQTT topics, comma separated. Each topic is one page. |
+
+Everything else comes from each retained payload: its `type` (`value`, `table`, `graph`, `weather`), its time on screen (`seconds`) and its content. The screen stays up for one full cycle of its pages. The payload formats, limits and notices are in [MQTT_DATA_CONTRACT.md](MQTT_DATA_CONTRACT.md); Home Assistant blueprints are described in [HOME_ASSISTANT.md](HOME_ASSISTANT.md).
 
 ---
 

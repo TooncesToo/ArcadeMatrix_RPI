@@ -435,6 +435,256 @@ pub fn gnews_status_label(lang: Lang, status: GNewsStatus) -> &'static str {
     }
 }
 
+// ----------------------------------------------------------------------------
+// 7. Long Weather Labels (wide layouts)
+// ----------------------------------------------------------------------------
+/// Unabbreviated day label for wide weather layouts (same table as the ESP32
+/// `I18n::getWeatherDayLabelLong`).
+pub fn weather_day_label_long(
+    lang: Lang,
+    day_of_week: usize,
+    is_today: bool,
+    is_tomorrow: bool,
+) -> &'static str {
+    if is_today {
+        return match lang {
+            Lang::En => "TODAY",
+            Lang::Es => "HOY",
+            Lang::Fr => "AUJOURD'HUI",
+        };
+    }
+    if is_tomorrow {
+        return match lang {
+            Lang::En => "TOMORROW",
+            Lang::Es => "MANANA",
+            Lang::Fr => "DEMAIN",
+        };
+    }
+    const EN: [&str; 7] = [
+        "SUNDAY",
+        "MONDAY",
+        "TUESDAY",
+        "WEDNESDAY",
+        "THURSDAY",
+        "FRIDAY",
+        "SATURDAY",
+    ];
+    const ES: [&str; 7] = [
+        "DOMINGO",
+        "LUNES",
+        "MARTES",
+        "MIERCOLES",
+        "JUEVES",
+        "VIERNES",
+        "SABADO",
+    ];
+    const FR: [&str; 7] = [
+        "DIMANCHE", "LUNDI", "MARDI", "MERCREDI", "JEUDI", "VENDREDI", "SAMEDI",
+    ];
+    match lang {
+        Lang::En => EN[day_of_week % 7],
+        Lang::Es => ES[day_of_week % 7],
+        Lang::Fr => FR[day_of_week % 7],
+    }
+}
+
+/// Unabbreviated OpenWeatherMap condition for wide weather layouts (same table
+/// as the ESP32 `I18n::getWeatherConditionLong`).
+pub fn weather_condition_long(lang: Lang, raw_condition: &str) -> &'static str {
+    let l = raw_condition.trim().to_lowercase();
+    let has = |k: &str| l.contains(k);
+    let idx = if has("clear") || has("sun") {
+        0
+    } else if has("few clouds") || has("scattered") {
+        1
+    } else if has("overcast") {
+        2
+    } else if has("cloud") {
+        3
+    } else if has("thunder") || has("storm") {
+        4
+    } else if has("drizzle") {
+        5
+    } else if has("rain") {
+        6
+    } else if has("snow") {
+        7
+    } else if has("mist") {
+        8
+    } else if has("fog") {
+        9
+    } else {
+        10
+    };
+    const EN: [&str; 11] = [
+        "Clear",
+        "Partly Cloudy",
+        "Overcast",
+        "Cloudy",
+        "Thunderstorm",
+        "Drizzle",
+        "Rain",
+        "Snow",
+        "Mist",
+        "Fog",
+        "Clear",
+    ];
+    const ES: [&str; 11] = [
+        "Soleado",
+        "Parcialmente Nublado",
+        "Cubierto",
+        "Nublado",
+        "Tormenta",
+        "Llovizna",
+        "Lluvia",
+        "Nieve",
+        "Bruma",
+        "Niebla",
+        "Variable",
+    ];
+    const FR: [&str; 11] = [
+        "Soleil",
+        "Eclaircies",
+        "Couvert",
+        "Nuageux",
+        "Orage",
+        "Bruine",
+        "Pluie",
+        "Neige",
+        "Brume",
+        "Brouillard",
+        "Variable",
+    ];
+    match lang {
+        Lang::En => EN[idx],
+        Lang::Es => ES[idx],
+        Lang::Fr => FR[idx],
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 8. MQTT Data Engine
+// ----------------------------------------------------------------------------
+/// Shown for an MQTT Data page whose topic has no payload.
+pub fn no_data_label(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Fr => "PAS DE DONNEES",
+        Lang::En => "NO DATA",
+        Lang::Es => "SIN DATOS",
+    }
+}
+
+/// Shown while the MQTT Data engine connects to its broker.
+pub fn connecting_label(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Fr => "CONNEXION",
+        Lang::En => "CONNECTING",
+        Lang::Es => "CONECTANDO",
+    }
+}
+
+/// Shown when the MQTT Data engine can't reach its broker.
+pub fn no_connection_label(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Fr => "PAS DE CONNEXION",
+        Lang::En => "NO CONNECTION",
+        Lang::Es => "SIN CONEXION",
+    }
+}
+
+/// Shown for an MQTT Data page whose payload has a missing or unknown `type`
+/// (or isn't JSON).
+pub fn unsupported_label(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Fr => "NON PRIS EN CHARGE",
+        Lang::En => "UNSUPPORTED",
+        Lang::Es => "NO COMPATIBLE",
+    }
+}
+
+/// Day label of the MQTT Data weather "NOW" page (live reading).
+pub fn weather_now_label(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Fr => "ACTU.",
+        Lang::En => "NOW",
+        Lang::Es => "AHORA",
+    }
+}
+
+/// Short / long display labels for the MQTT Data weather conditions
+/// (the condition names listed in docs/MQTT_DATA_CONTRACT.md). `None` for an
+/// unknown condition, which the caller shows as received.
+pub fn weather_condition_labels(
+    lang: Lang,
+    condition: &str,
+) -> Option<(&'static str, &'static str)> {
+    let c = condition.trim().to_ascii_lowercase();
+    let labels = match (c.as_str(), lang) {
+        ("sunny", Lang::En) => ("Sunny", "Sunny"),
+        ("sunny", Lang::Fr) => ("Soleil", "Ensoleillé"),
+        ("sunny", Lang::Es) => ("Sol", "Soleado"),
+        ("clear-night", Lang::En) => ("Clear", "Clear"),
+        ("clear-night", Lang::Fr) => ("Clair", "Dégagé"),
+        ("clear-night", Lang::Es) => ("Despejado", "Despejado"),
+        ("partlycloudy", Lang::En) => ("Pt cloudy", "Partly cloudy"),
+        ("partlycloudy", Lang::Fr) => ("Nuageux", "Partiellement nuageux"),
+        ("partlycloudy", Lang::Es) => ("Nubes", "Parcialmente nublado"),
+        ("cloudy", Lang::En) => ("Cloudy", "Cloudy"),
+        ("cloudy", Lang::Fr) => ("Couvert", "Couvert"),
+        ("cloudy", Lang::Es) => ("Nublado", "Nublado"),
+        ("fog", Lang::En) => ("Fog", "Fog"),
+        ("fog", Lang::Fr) => ("Brouil.", "Brouillard"),
+        ("fog", Lang::Es) => ("Niebla", "Niebla"),
+        ("exceptional", Lang::En) => ("Unusual", "Unusual"),
+        ("exceptional", Lang::Fr) => ("Except.", "Exceptionnel"),
+        ("exceptional", Lang::Es) => ("Inusual", "Inusual"),
+        ("rainy", Lang::En) => ("Rain", "Rain"),
+        ("rainy", Lang::Fr) => ("Pluie", "Pluie"),
+        ("rainy", Lang::Es) => ("Lluvia", "Lluvia"),
+        ("pouring", Lang::En) => ("Hvy rain", "Heavy rain"),
+        ("pouring", Lang::Fr) => ("Averse", "Forte pluie"),
+        ("pouring", Lang::Es) => ("Aguacero", "Lluvia fuerte"),
+        ("lightning", Lang::En) => ("Storm", "Storm"),
+        ("lightning", Lang::Fr) => ("Orage", "Orage"),
+        ("lightning", Lang::Es) => ("Tormenta", "Tormenta"),
+        ("lightning-rainy", Lang::En) => ("Storm+rain", "Storm + rain"),
+        ("lightning-rainy", Lang::Fr) => ("Orage+pl.", "Orage et pluie"),
+        ("lightning-rainy", Lang::Es) => ("Torm.+lluv.", "Tormenta y lluvia"),
+        ("snowy", Lang::En) => ("Snow", "Snow"),
+        ("snowy", Lang::Fr) => ("Neige", "Neige"),
+        ("snowy", Lang::Es) => ("Nieve", "Nieve"),
+        ("snowy-rainy", Lang::En) => ("Sleet", "Sleet"),
+        ("snowy-rainy", Lang::Fr) => ("Neige fond.", "Neige fondue"),
+        ("snowy-rainy", Lang::Es) => ("Aguanieve", "Aguanieve"),
+        ("hail", Lang::En) => ("Hail", "Hail"),
+        ("hail", Lang::Fr) => ("Grêle", "Grêle"),
+        ("hail", Lang::Es) => ("Granizo", "Granizo"),
+        ("windy" | "windy-variant", Lang::En) => ("Windy", "Windy"),
+        ("windy" | "windy-variant", Lang::Fr) => ("Venteux", "Venteux"),
+        ("windy" | "windy-variant", Lang::Es) => ("Viento", "Ventoso"),
+        _ => return None,
+    };
+    Some(labels)
+}
+
+/// OpenWeatherMap icon code for an MQTT Data weather condition, so the existing
+/// weather icons are reused. Unknown conditions get "03d" (clouds).
+pub fn weather_icon_code(condition: &str) -> &'static str {
+    match condition.trim().to_ascii_lowercase().as_str() {
+        "sunny" => "01d",
+        "clear-night" => "01n",
+        "partlycloudy" => "02d",
+        "cloudy" => "04d",
+        "fog" | "exceptional" => "50d",
+        "rainy" => "10d",
+        "pouring" => "09d",
+        "lightning" | "lightning-rainy" => "11d",
+        "snowy" | "snowy-rainy" | "hail" => "13d",
+        "windy" | "windy-variant" => "03d",
+        _ => "03d",
+    }
+}
+
 // ============================================================================
 // Unit Tests
 // ============================================================================
