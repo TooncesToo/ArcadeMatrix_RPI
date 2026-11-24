@@ -558,8 +558,29 @@ impl Engine for ClockEngine {
                 }
             }
             21 => {
+                // Matrix clock: 4-direction neon-green halo + ultra-bright mint core,
+                // matching the ESP32 MatrixRainClock pixel-for-pixel. Draw four offset
+                // strokes in GLOW, then one centred stroke in CORE on top.
                 self.true_matrix.render(matrix);
+                const GLOW: Option<(u8, u8, u8)> = Some((0, 255, 60));
+                const CORE: Option<(u8, u8, u8)> = Some((225, 255, 225));
+                let ox = self.time_offset_x;
+                let oy = self.time_offset_y;
                 if is_tate {
+                    for (dx, dy) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1)] {
+                        self.base_renderer.render_tate_time(
+                            matrix,
+                            hours,
+                            minutes,
+                            seconds,
+                            21,
+                            effective_size,
+                            ox + dx,
+                            oy + dy,
+                            GLOW,
+                            GLOW,
+                        );
+                    }
                     self.base_renderer.render_tate_time(
                         matrix,
                         hours,
@@ -567,21 +588,33 @@ impl Engine for ClockEngine {
                         seconds,
                         21,
                         effective_size,
-                        self.time_offset_x,
-                        self.time_offset_y,
-                        Some((0, 255, 70)),
-                        Some((0, 0, 0)),
+                        ox,
+                        oy,
+                        CORE,
+                        CORE,
                     );
                 } else {
+                    for (dx, dy) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1)] {
+                        self.base_renderer.render_text(
+                            matrix,
+                            &time_str,
+                            21,
+                            effective_size,
+                            ox + dx,
+                            oy + dy,
+                            GLOW,
+                            GLOW,
+                        );
+                    }
                     self.base_renderer.render_text(
                         matrix,
                         &time_str,
                         21,
                         effective_size,
-                        self.time_offset_x,
-                        self.time_offset_y,
-                        Some((0, 140, 0)),
-                        Some((0, 0, 0)),
+                        ox,
+                        oy,
+                        CORE,
+                        CORE,
                     );
                 }
             }
